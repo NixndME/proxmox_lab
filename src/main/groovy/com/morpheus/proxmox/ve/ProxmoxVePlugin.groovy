@@ -23,6 +23,8 @@ import groovy.util.logging.Slf4j
 
 @Slf4j
 class ProxmoxVePlugin extends Plugin {
+    
+    private String networkProviderCode
 
     @Override
     String getCode() {
@@ -35,6 +37,13 @@ class ProxmoxVePlugin extends Plugin {
         this.registerProvider(new ProxmoxVeCloudProvider(this,this.morpheus))
         this.registerProvider(new ProxmoxVeProvisionProvider(this,this.morpheus))
         this.registerProvider(new ProxmoxVeOptionSourceProvider(this,this.morpheus))
+        def networkProvider = new ProxmoxNetworkProvider(this, this.morpheus)
+        this.registerProvider(networkProvider)
+        networkProviderCode = networkProvider.code
+    }
+    
+    def ProxmoxNetworkProvider getNetworkProvider() {
+        this.getProviderByCode(networkProviderCode)
     }
 
 
