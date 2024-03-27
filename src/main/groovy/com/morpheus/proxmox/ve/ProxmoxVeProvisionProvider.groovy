@@ -6,6 +6,7 @@ import com.morpheusdata.core.Plugin
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.providers.WorkloadProvisionProvider
 import com.morpheusdata.model.ComputeServer
+import com.morpheusdata.model.HostType
 import com.morpheusdata.model.Icon
 import com.morpheusdata.model.OptionType
 import com.morpheusdata.model.ProcessEvent
@@ -250,7 +251,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 		log.info("In runWorkload...")
 		Thread.sleep(10000)
 
-		context.async.process.startProcessStep(workloadRequest.process , new ProcessEvent(type: ProcessEvent.ProcessType.general), 'configuring')
+		context.async.process.startProcessStep(workloadRequest.process , new ProcessEvent(type: ProcessEvent.ProcessType.general), 'completed')
 
 		ComputeServer server = workload.server
 		Cloud cloud = server.cloud
@@ -258,7 +259,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 		HttpApiClient client = new HttpApiClient()
 		String nodeId = workload.server.getConfigProperty('proxmoxNode') ?: null
 
-		context.async.process.startProcessStep(workloadRequest.process, new ProcessEvent(type: ProcessEvent.ProcessType.provisionDeploy), 'Deploying Instance').blockingGet()
+		context.async.process.startProcessStep(workloadRequest.process, new ProcessEvent(type: ProcessEvent.ProcessType.provisionDeploy), 'completed').blockingGet()
 
 		log.info("Provisioning/cloning: ${workload.getInstance().name} from Image Id: $server.sourceImage.externalId on node: $nodeId")
 		ServiceResponse rtn = ProxmoxComputeUtil.cloneTemplate(client, authConfig, server.sourceImage.externalId, workload.getInstance().name, nodeId)
@@ -421,5 +422,10 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 	@Override
 	String getName() {
 		return 'Proxmox VE Provisioning'
+	}
+
+	@Override
+	HostType getHostType() {
+		HostType.vm
 	}
 }
