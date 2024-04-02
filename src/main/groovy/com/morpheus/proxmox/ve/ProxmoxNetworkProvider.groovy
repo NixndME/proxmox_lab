@@ -135,6 +135,7 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 	 */
 	@Override
 	ServiceResponse createNetwork(Network network, Map opts) {
+		log.info("NVR: CREATE NETWORK")
 		return ServiceResponse.success(network)
 	}
 
@@ -146,6 +147,7 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 	 */
 	@Override
 	ServiceResponse<Network> updateNetwork(Network network, Map opts) {
+		log.info("NVR: UPDATE NETWORK")
 		return ServiceResponse.success(network)
 	}
 
@@ -156,21 +158,25 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 	 */
 	@Override
 	ServiceResponse deleteNetwork(Network network, Map opts) {
+		log.info("NVR: DELETE NETWORK")
 		return ServiceResponse.success()
 	}
 	
 	@Override
 	ServiceResponse createSubnet(NetworkSubnet subnet, Network network, Map opts) {
+		log.info("NVR: CREATE SUBNET")
 		return ServiceResponse.success()	
 	}
 	
 	@Override
 	ServiceResponse updateSubnet(NetworkSubnet subnet, Network network, Map opts) {
+		log.info("NVR: UPDATE SUBNET")
 		return ServiceResponse.success()	
 	}
 	
 	@Override
 	ServiceResponse deleteSubnet(NetworkSubnet subnet, Network network, Map opts) {
+		log.info("NVR: DELETE SUBNET")
 		return ServiceResponse.success()
 	}
 	
@@ -178,5 +184,21 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 	Collection getRouterTypes() {
 		return []
 	}
+
+
+
+	@Override
+	ServiceResponse<Network> prepareNetwork(Network network, Map opts) {
+		log.info("NVR: PREPARE NETWORK")
+		return ServiceResponse.success(network);
+	}
+
+
+	@Override
+	ServiceResponse validateNetwork(Network network, Map opts) {
+		log.info("NVR: VALIDATE NETWORK")
+		return ServiceResponse.success();
+	}
+
 
 }
