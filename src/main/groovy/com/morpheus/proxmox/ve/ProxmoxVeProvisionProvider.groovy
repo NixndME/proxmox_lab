@@ -251,7 +251,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 		log.info("In runWorkload...")
 		Thread.sleep(10000)
 
-		context.async.process.startProcessStep(workloadRequest.process , new ProcessEvent(type: ProcessEvent.ProcessType.general), 'completed')
+		context.async.process.startProcessStep(workloadRequest.process , new ProcessEvent(type: ProcessEvent.ProcessType.general), 'completed').blockingGet()
 
 		ComputeServer server = workload.server
 		Cloud cloud = server.cloud
