@@ -80,7 +80,7 @@ class NetworkSync {
                         description  : cloudItem.cidr,
                         cidr         : cloudItem.cidr,
                         status       : cloudItem.active,
-                        code         : "stackit.network.${cloudItem.iface}",
+                        code         : "proxmox.network.${cloudItem.iface}",
                         typeCode     : networkType.code,
                         type         : networkType,
                         owner        : cloud.account,
