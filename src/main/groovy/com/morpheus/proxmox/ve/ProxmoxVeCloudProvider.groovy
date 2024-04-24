@@ -1,5 +1,6 @@
 package com.morpheus.proxmox.ve
 
+import com.morpheus.proxmox.ve.sync.VirtualImageLocationSync
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
 import com.morpheusdata.core.providers.CloudProvider
@@ -39,7 +40,6 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	protected Plugin plugin
 
 	public ProxmoxVeCloudProvider(Plugin plugin, MorpheusContext ctx) {
-		super()
 		this.@plugin = plugin
 		this.@context = ctx
 	}
@@ -93,6 +93,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				required: true,
 				defaultValue: ""
 		)
+
 		options << new OptionType(
 				code: 'proxmox-credential',
 				inputType: OptionType.InputType.CREDENTIAL,
@@ -290,9 +291,11 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 
 			// Provided creds vs. Infra > Trust creds
 			if (validateCloudRequest.credentialType == 'username-password') {
+				log.debug("Adding cloud with username-password credentialType")
 				username = validateCloudRequest.credentialUsername ?: cloudInfo.serviceUsername
 				password = validateCloudRequest.credentialPassword ?: cloudInfo.servicePassword
 			} else if (validateCloudRequest.credentialType == 'local') {
+				log.debug("Adding cloud with local credentialType")
 				username = cloudInfo.getConfigMap().get("username")
 				password = cloudInfo.getConfigMap().get("password")
 			} else {
@@ -331,7 +334,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	@Override
 	ServiceResponse initializeCloud(Cloud cloudInfo) {
 		
-		plugin.getNetworkProvider().initializeProvider(cloudInfo)
+		//plugin.getNetworkProvider().initializeProvider(cloudInfo)
 
 
 		return ServiceResponse.success()
@@ -356,7 +359,8 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 			(new DatastoreSync(plugin, cloudInfo, client)).execute()
 			(new NetworkSync(plugin, cloudInfo, client)).execute()
 			(new VMSync(plugin, cloudInfo, client, this)).execute()
-			(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
+			//(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
+			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
 
 		} catch (e) {
 			log.error("refresh cloud error: ${e}", e)
@@ -385,6 +389,11 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	ServiceResponse deleteCloud(Cloud cloudInfo) {
+
+		log.debug("Cleanup (deleteCloud) triggered, service url is: " + cloudInfo.serviceUrl)
+		HttpApiClient client = new HttpApiClient()
+
+		(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).clean()
 		return ServiceResponse.success()
 	}
 

@@ -77,7 +77,7 @@ class ProxmoxComputeUtil {
 
         ServiceResponse datastoreResults = callListApiV2(client, "storage", authConfig)
         List<Map> datastores = datastoreResults.data
-        String queryNode = "pve"
+        String queryNode = ""
         String randomNode = null
         for (ds in datastores) {
             if (ds.containsKey("nodes")) { //some pools don't belong to any node, but api path needs node for status details
