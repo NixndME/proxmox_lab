@@ -37,9 +37,9 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	public static final String CLOUD_PROVIDER_CODE = 'proxmox-ve.cloud'
 
 	protected MorpheusContext context
-	protected Plugin plugin
+	protected ProxmoxVePlugin plugin
 
-	public ProxmoxVeCloudProvider(Plugin plugin, MorpheusContext ctx) {
+	public ProxmoxVeCloudProvider(ProxmoxVePlugin plugin, MorpheusContext ctx) {
 		this.@plugin = plugin
 		this.@context = ctx
 	}
@@ -176,10 +176,10 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		NetworkType bridgeNetwork = new NetworkType([
 				code              : 'proxmox-ve-bridge-network',
 				externalType      : 'LinuxBridge',
-				cidrEditable      : false,
-				dhcpServerEditable: false,
+				cidrEditable      : true,
+				dhcpServerEditable: true,
 				dnsEditable       : true,
-				gatewayEditable   : false,
+				gatewayEditable   : true,
 				vlanIdEditable    : false,
 				canAssignPool     : true,
 				name              : 'Proxmox VE Bridge Network',
@@ -334,7 +334,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	@Override
 	ServiceResponse initializeCloud(Cloud cloudInfo) {
 		
-		//plugin.getNetworkProvider().initializeProvider(cloudInfo)
+		plugin.getNetworkProvider().initializeProvider(cloudInfo)
 
 
 		return ServiceResponse.success()

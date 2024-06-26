@@ -4,19 +4,254 @@ import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.response.ServiceResponse
 import groovy.util.logging.Slf4j
 import org.apache.http.entity.ContentType
+import groovy.json.JsonSlurper
+
+import java.net.http.HttpClient
 
 
 @Slf4j
 class ProxmoxComputeUtil {
 
     static final String API_BASE_PATH = "/api2/json"
+    static final Long API_CHECK_WAIT_INTERVAL = 2000
 
 
-    static cloneTemplate(HttpApiClient client, Map authConfig, String templateId, String name, String nodeId) {
+    /*
+    static setCloudInitData(HttpApiClient client, Map authConfig, String node, String vmId, String ciData) {
+        log.debug("resizeVMCompute")
+
+
+        try {
+            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def opts = [
+                    headers  : [
+                            'Content-Type'       : 'application/json',
+                            'Cookie'             : "PVEAuthCookie=$tokenCfg.token",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    body     : [
+                            vmid: vmId,
+                            node: node,
+                            vcpus: cpu,
+                            memory: ramValue
+                    ],
+                    contentType: ContentType.APPLICATION_JSON,
+                    ignoreSSL: true
+            ]
+
+            log.debug("Setting VM Compute Size $vmId on node $node...")
+            log.debug("POST path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config")
+            log.debug("POST body is: $opts.body")
+            sleep(10000)
+            def results = client.callJsonApi(
+                    (String) authConfig.apiUrl,
+                    "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config",
+                    null, null,
+                    new HttpApiClient.RequestOptions(opts),
+                    'POST'
+            )
+
+            return results
+        } catch (e) {
+            log.error "Error Provisioning VM: ${e}", e
+            return ServiceResponse.error("Error Provisioning VM: ${e}")
+        }
+    }
+*/
+
+
+    static resizeVMCompute(HttpApiClient client, Map authConfig, String node, String vmId, Long cpu, Long ram) {
+        log.debug("resizeVMCompute")
+        Long ramValue = ram / 1024 / 1024
+
+        try {
+            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def opts = [
+                    headers  : [
+                            'Content-Type'       : 'application/json',
+                            'Cookie'             : "PVEAuthCookie=$tokenCfg.token",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    body     : [
+                            vmid: vmId,
+                            node: node,
+                            vcpus: cpu,
+                            memory: ramValue,
+                            net0: "bridge=vmbr0,model=e1000e"
+                    ],
+                    contentType: ContentType.APPLICATION_JSON,
+                    ignoreSSL: true
+            ]
+
+            log.debug("Setting VM Compute Size $vmId on node $node...")
+            log.debug("POST path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config")
+            log.debug("POST body is: $opts.body")
+            sleep(10000)
+            def results = client.callJsonApi(
+                    (String) authConfig.apiUrl,
+                    "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config",
+                    null, null,
+                    new HttpApiClient.RequestOptions(opts),
+                    'POST'
+            )
+
+            return results
+        } catch (e) {
+            log.error "Error Provisioning VM: ${e}", e
+            return ServiceResponse.error("Error Provisioning VM: ${e}")
+        }
+    }
+
+
+    static startVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
+        log.debug("startVM")
+
+        try {
+            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def opts = [
+                    headers  : [
+                            'Content-Type'       : 'application/json',
+                            'Cookie'             : "PVEAuthCookie=$tokenCfg.token",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    body     : [
+                            vmid: vmId,
+                            node: nodeId
+                    ],
+                    contentType: ContentType.APPLICATION_JSON,
+                    ignoreSSL: true
+            ]
+
+            log.debug("Starting New Proxmox VM $vmId on node $nodeId...")
+            log.debug("Post path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/start/")
+            def results = client.callJsonApi(
+                    (String) authConfig.apiUrl,
+                    "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/start/",
+                    null, null,
+                    new HttpApiClient.RequestOptions(opts),
+                    'POST'
+            )
+
+            return results
+        } catch (e) {
+            log.error "Error Starting VM: ${e}", e
+            return ServiceResponse.error("Error Starting VM: ${e}")
+        }
+    }
+
+
+    static createImageTemplate(HttpApiClient client, Map authConfig, String imageName, String nodeId, int cpu, Long ram, String sourceUri = null) {
+        log.debug("createImage: $imageName")
 
         def rtn = new ServiceResponse(success: true)
         def nextId = callListApiV2(client, "cluster/nextid", authConfig).data
-        log.info("Next VM Id is: $nextId")
+        log.debug("Next VM Id is: $nextId")
+
+        try {
+            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            rtn.data = []
+            def opts = [
+                    headers  : [
+                            'Content-Type'       : 'application/json',
+                            'Cookie'             : "PVEAuthCookie=$tokenCfg.token",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    body     : [
+                            vmid: nextId,
+                            node: nodeId,
+                            name: imageName,
+                            template: true
+                    ],
+                    contentType: ContentType.APPLICATION_JSON,
+                    ignoreSSL: true
+            ]
+
+            log.debug("Creating blank template for attaching qcow2...")
+            log.debug("Path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/")
+            def results = client.callJsonApi(
+                    (String) authConfig.apiUrl,
+                    "${authConfig.v2basePath}/nodes/$nodeId/qemu/",
+                    null, null,
+                    new HttpApiClient.RequestOptions(opts),
+                    'POST'
+            )
+
+            def resultData = new JsonSlurper().parseText(results.content)
+            if (results?.success && !results?.hasErrors()) {
+                rtn.success = true
+                rtn.data = resultData
+                rtn.data.templateId = nextId
+            } else {
+                rtn.msg = "Template create failed: $results.data $results $results.errorCode $results.content"
+                rtn.success = false
+            }
+        } catch (e) {
+            log.error "Error Provisioning VM: ${e}", e
+            return ServiceResponse.error("Error Provisioning VM: ${e}")
+        }
+        return rtn
+    }
+
+
+    static ServiceResponse waitForCloneToComplete(HttpApiClient client, Map authConfig, String templateId, String vmId, String nodeId, Long timeoutInSec) {
+        Long timeout = timeoutInSec * 1000
+        Long duration = 0
+        log.debug("waitForCloneToComplete: $templateId")
+
+        try {
+            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def opts = [
+                    headers: [
+                            'Content-Type': 'application/json',
+                            'Cookie': "PVEAuthCookie=$tokenCfg.token",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    contentType: ContentType.APPLICATION_JSON,
+                    ignoreSSL: true
+            ]
+
+            log.debug("Checking VM Status after clone template $templateId to VM $vmId on node $nodeId")
+            log.debug("Path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/config")
+
+            while (duration < timeout) {
+                log.info("Checking VM $vmId status on node $nodeId")
+                def results = client.callJsonApi(
+                        (String) authConfig.apiUrl,
+                        "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/config",
+                        null, null,
+                        new HttpApiClient.RequestOptions(opts),
+                        'GET'
+                )
+
+                if (!results.success) {
+                    log.error("Error checking VM clone result status.")
+                    return results
+                }
+
+                def resultData = new JsonSlurper().parseText(results.content)
+                log.info("Check results: $resultData")
+                if (!resultData.data.containsKey("lock")) {
+                    return results
+                } else {
+                    log.info("VM Still Locked, wait ${API_CHECK_WAIT_INTERVAL}ms and check again...")
+                }
+                sleep(API_CHECK_WAIT_INTERVAL)
+                duration += API_CHECK_WAIT_INTERVAL
+            }
+            return new ServiceResponse(success: false, msg: "Timeout", data: "Timeout")
+        } catch(e) {
+            log.error "Error Checking VM Clone Status: ${e}", e
+            return ServiceResponse.error("Error Checking VM Clone Status: ${e}")
+        }
+    }
+
+
+    static cloneTemplate(HttpApiClient client, Map authConfig, String templateId, String name, String nodeId, Long vcpus, Long ram) {
+        log.debug("cloneTemplate: $templateId")
+
+        def rtn = new ServiceResponse(success: true)
+        def nextId = callListApiV2(client, "cluster/nextid", authConfig).data
+        log.debug("Next VM Id is: $nextId")
 
         try {
             def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
@@ -31,14 +266,16 @@ class ProxmoxComputeUtil {
                             newid: nextId,
                             node: nodeId,
                             vmid: templateId,
-                            name: name
+                            name: name,
+                            full: true
                     ],
                     contentType: ContentType.APPLICATION_JSON,
                     ignoreSSL: true
             ]
 
-            log.info("Cloning template $templateId to VM $name($nextId) on node $nodeId")
-            log.info("Path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$templateId/clone")
+            log.debug("Cloning template $templateId to VM $name($nextId) on node $nodeId")
+            log.debug("Path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$templateId/clone")
+            log.debug("Body data is: $opts.body")
             def results = client.callJsonApi(
                     (String) authConfig.apiUrl,
                     "${authConfig.v2basePath}/nodes/$nodeId/qemu/$templateId/clone",
@@ -47,21 +284,38 @@ class ProxmoxComputeUtil {
                     'POST'
             )
 
-            log.info("Cloning template $templateId to VM $nextId on node $nodeId")
-            def resultData = results.content
+            def resultData = new JsonSlurper().parseText(results.content)
+
+            //def resultData = results.content
             if(results?.success && !results?.hasErrors()) {
                 rtn.success = true
                 rtn.data = resultData
-                opts.body = [vmid: nextId, node: nodeId]
-                def startResults = client.callJsonApi(
-                        (String) authConfig.apiUrl,
-                        "${authConfig.v2basePath}/nodes/$nodeId/qemu/$nextId/status/start",
-                        null, null,
-                        new HttpApiClient.RequestOptions(opts),
-                        'POST'
-                )
+
+                ServiceResponse cloneWaitResult = waitForCloneToComplete(new HttpApiClient(), authConfig, templateId, nextId, nodeId, 3600L)
+
+                if (!cloneWaitResult?.success) {
+                    return ServiceResponse.error("Error Provisioning VM. Wait for clone error: ${cloneWaitResult}")
+                }
+
+                ServiceResponse rtnResize = resizeVMCompute(new HttpApiClient(), authConfig, nodeId, nextId, vcpus, ram)
+
+                if (!rtnResize?.success) {
+                    return ServiceResponse.error("Error Sizing VM Compute. Rsize compute error: ${rtnResize}")
+                }
+
+                //log.debug("Starting New Proxmox VM $nextId on node $nodeId...")
+                //opts.body = [vmid: nextId, node: nodeId]
+                //def startResults = client.callJsonApi(
+                //        (String) authConfig.apiUrl,
+                //        "${authConfig.v2basePath}/nodes/$nodeId/qemu/$nextId/status/start",
+                //        null, null,
+                //        new HttpApiClient.RequestOptions(opts),
+                //        'POST'
+                //)
+                rtn.data.vmId = nextId
+                //rtn.data.startResult = startResults.success
             } else {
-                rtn.msg = "Provisioning failed: $results.data $results $results.errorCode $results.content"
+                rtn.msg = "Provisioning failed: ${results.toMap()}"
                 rtn.success = false
             }
         } catch(e) {
@@ -177,7 +431,7 @@ class ProxmoxComputeUtil {
     
     
     private static ServiceResponse callListApiV2(HttpApiClient client, String path, Map authConfig) {
-        log.debug("callListApiV2: path: ${path}")
+        //log.debug("callListApiV2: path: ${path}")
 
         def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
         def rtn = new ServiceResponse(success: false)
@@ -215,7 +469,7 @@ class ProxmoxComputeUtil {
 
     private static ServiceResponse getApiV2Token(String uid, String pwd, String baseUrl) {
         def path = "access/ticket"
-        log.debug("getApiV2Token: path: ${path}")
+        //log.debug("getApiV2Token: path: ${path}")
         HttpApiClient client = new HttpApiClient()
         def rtn = new ServiceResponse(success: false)
         try {

@@ -3,23 +3,39 @@ package com.morpheus.proxmox.ve
 import com.morpheusdata.core.AbstractProvisionProvider
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
+import com.morpheusdata.core.data.DataFilter
+import com.morpheusdata.core.data.DataQuery
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.providers.WorkloadProvisionProvider
 import com.morpheusdata.model.ComputeServer
+import com.morpheusdata.model.Datastore
 import com.morpheusdata.model.HostType
 import com.morpheusdata.model.Icon
+import com.morpheusdata.model.LogLevel
 import com.morpheusdata.model.OptionType
 import com.morpheusdata.model.ProcessEvent
 import com.morpheusdata.model.ServicePlan
 import com.morpheusdata.model.StorageVolumeType
+import com.morpheusdata.model.VirtualImage
+import com.morpheusdata.model.VirtualImageLocation
 import com.morpheusdata.model.Workload
+import com.morpheusdata.model.projection.ComputeServerIdentityProjection
+import com.morpheusdata.model.projection.DatastoreIdentity
 import com.morpheusdata.model.provisioning.WorkloadRequest
 import com.morpheusdata.model.Cloud
 import com.morpheusdata.response.PrepareWorkloadResponse
 import com.morpheusdata.response.ProvisionResponse
 import com.morpheusdata.response.ServiceResponse
 import com.morpheus.proxmox.ve.util.ProxmoxComputeUtil
+import com.morpheus.proxmox.ve.util.ProxmoxMiscUtil
 import groovy.util.logging.Slf4j
+import io.reactivex.rxjava3.core.Observable
+import io.reactivex.rxjava3.core.Single
+import com.jcraft.jsch.JSch
+import com.jcraft.jsch.Session
+import com.jcraft.jsch.Channel
+import com.jcraft.jsch.ChannelSftp
+import com.jcraft.jsch.SftpException
 
 
 @Slf4j
@@ -35,10 +51,14 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 		this.@plugin = plugin
 	}
 
+	@Override
+	Boolean hasNetworks() {
+		return true
+	}
 
 	@Override
 	Boolean supportsAgent() {
-		return false
+		return true
 	}
 
 	@Override
@@ -123,7 +143,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 				global:false,
 				placeHolder:null,
 				helpBlock:'Skipping Agent installation will result in a lack of logging and guest operating system statistics. Automation scripts may also be adversely affected.',
-				defaultValue: true,
+				defaultValue: false,
 				custom:false,
 				fieldClass:null
 		)
@@ -248,26 +268,69 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 	 */
 	@Override
 	ServiceResponse<ProvisionResponse> runWorkload(Workload workload, WorkloadRequest workloadRequest, Map opts) {
-		log.info("In runWorkload...")
+		log.debug("In runWorkload...")
+		log.info("Cloud-Init User-Data Opts: $workloadRequest.cloudConfigOpts")
+		log.info("Cloud-Init User-Data User: $workloadRequest.cloudConfigUser")
+		log.info("Cloud-Init User-Data Meta: $workloadRequest.cloudConfigMeta")
+		log.info("Cloud-Init User-Data Network: $workloadRequest.cloudConfigNetwork")
 		Thread.sleep(10000)
+		log.info("Network details")
 
 		context.async.process.startProcessStep(workloadRequest.process , new ProcessEvent(type: ProcessEvent.ProcessType.general), 'completed').blockingGet()
 
 		ComputeServer server = workload.server
 		Cloud cloud = server.cloud
+		VirtualImage virtualImage = server.sourceImage
 		Map authConfig = plugin.getAuthConfig(cloud)
 		HttpApiClient client = new HttpApiClient()
 		String nodeId = workload.server.getConfigProperty('proxmoxNode') ?: null
+		DatastoreIdentity targetDS = server.getVolumes().first().datastore
+
+
+		if (!targetDS) {
+			targetDS = getDefaultDatastore(cloud.id)
+		}
+
+		ComputeServer hvNode = getHypervisorHostByExternalId(cloud.id, nodeId)
+		if (!hvNode.sshHost || !hvNode.sshUsername || !hvNode.sshPassword) {
+			context.async.process.startProcessStep(workloadRequest.process, new ProcessEvent(type: ProcessEvent.ProcessType.provisionDeploy), 'completed').blockingGet()
+			return ServiceResponse.error("SSH credentials required on host for provisioning to work. Edit the hypervisor host properties under the cloud Hosts tab.")
+		}
+
+		String imageExternalId = getOrUploadImage(client, authConfig, cloud, virtualImage, hvNode, targetDS.name)
 
 		context.async.process.startProcessStep(workloadRequest.process, new ProcessEvent(type: ProcessEvent.ProcessType.provisionDeploy), 'completed').blockingGet()
 
-		log.info("Provisioning/cloning: ${workload.getInstance().name} from Image Id: $server.sourceImage.externalId on node: $nodeId")
-		ServiceResponse rtn = ProxmoxComputeUtil.cloneTemplate(client, authConfig, server.sourceImage.externalId, workload.getInstance().name, nodeId)
+		log.info("Provisioning/cloning: ${workload.getInstance().name} from Image Id: $imageExternalId on node: $nodeId")
+		ServiceResponse rtnClone = ProxmoxComputeUtil.cloneTemplate(client, authConfig, imageExternalId, workload.getInstance().name, nodeId, server.coresPerSocket, server.maxMemory)
 
-		if (!rtn.success) {
-			log.error("Provisioning failed: $rtn.msg")
-			return ServiceResponse.error("Provisioning failed: $rtn.msg")
+		log.debug("VM Clone done. Results: $rtnClone")
+
+		if (!rtnClone.success) {
+			log.error("Provisioning/clone failed: $rtnClone.msg")
+			return ServiceResponse.error("Provisioning failed: $rtnClone.msg")
+		}/* else {
+			ServiceResponse rtnResize = ProxmoxComputeUtil.resizeVMCompute(client, authConfig, nodeId, rtnClone.data.vmId, server.coresPerSocket, server.maxMemory)
+			log.debug("VM Resize done. Results: $rtnResize")
+			if (!rtnClone.success) {
+				log.error("VM Sizing failed: $rtnResize.msg")
+				return ServiceResponse.error("Provisioning failed: $rtnResize.msg")
+			}
+		}*/
+
+		if(virtualImage?.isCloudInit && workloadRequest?.cloudConfigUser) {
+			String cloudConfigUser = workloadRequest?.cloudConfigUser
+			log.debug("Ensuring snippets directory on node: $nodeId")
+			context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "mkdir -p /var/lib/vz/snippets", "", "", "", false, LogLevel.info, true, null, false).blockingGet()
+			log.debug("Creating cloud-init user-data file on hypervisor node: /var/lib/vz/snippets/${rtnClone.data.vmId}-cloud-init.yml")
+			ProxmoxMiscUtil.sftpCreateFile(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "/var/lib/vz/snippets/${rtnClone.data.vmId}-cloud-init.yml", workloadRequest.cloudConfigUser, null)
+			log.debug("Creating cloud-init vm disk: local-zfs:cloudinit")
+			context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "qm set ${rtnClone.data.vmId} --ide2 local-zfs:cloudinit", "", "", "", false, LogLevel.info, true, null, false).blockingGet()
+			log.debug("Mounting cloud-init data to disk...")
+			context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "qm set ${rtnClone.data.vmId} --cicustom \"user=local:snippets/${rtnClone.data.vmId}-cloud-init.yml\"", "", "", "", false, LogLevel.info, true, null, false).blockingGet()
 		}
+
+		ProxmoxComputeUtil.startVM(client, authConfig, nodeId, rtnClone.data.vmId)
 
 		return new ServiceResponse<ProvisionResponse>(
 				true,
@@ -275,14 +338,147 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 				null,
 				new ProvisionResponse(
 						success: true,
-						noAgent: true,
+						noAgent: false,
 						skipNetworkWait: true,
-						installAgent: false,
+						installAgent: true,
 						externalId: "abc123",
 						//publicIp: "10.10.10.10",
 						privateIp: "0.0.0.0"
 				)
 		)
+	}
+
+
+	private DatastoreIdentity getDefaultDatastore(Long cloudId) {
+		log.debug("getDefaultDatastoreName()...")
+		//returns the largest non-local datastore
+		Datastore rtn = null
+		context.async.cloud.datastore.list(new DataQuery().withFilters([
+				new DataFilter("refType", "ComputeZone"),
+				new DataFilter("refId", cloudId)
+		])).blockingForEach { ds ->
+			if (rtn == null) {
+				rtn = ds
+			} else if (ds.name.contains("zfs") || (ds.getFreeSpace() > rtn.getFreeSpace())) {
+				rtn = ds
+			}
+		}
+		return rtn
+	}
+
+	private ComputeServer getHypervisorHostByExternalId(Long cloudId, String externalId) {
+		log.info("Fetch Hypervisor Host by Cloud/External Id: $cloudId/$externalId")
+
+		ComputeServer hvNode
+		def hostIdentityProjection = context.async.computeServer.listIdentityProjections(cloudId, null).filter {
+			ComputeServerIdentityProjection projection ->
+				if (projection.externalId == externalId) {
+					return true
+				}
+				false
+		}.subscribe {
+			log.info("Found Host IdentityProjection: $it.id")
+			List<Long> idList = [it.id]
+			hvNode = context.async.computeServer.listById(idList).blockingFirst()
+			log.debug("Returning hvHost: $hvNode.sshHost")
+		}
+
+		return hvNode
+	}
+
+
+
+	private getOrUploadImage(HttpApiClient client, Map authConfig, Cloud cloud, VirtualImage virtualImage, ComputeServer hvNode, String targetDS) {
+		def imageExternalId
+		def lock
+		def imagePathPrefix = "/var/opt/morpheus/morpheus-ui/vms/morpheus-images"
+		def remoteImageDir = "/var/lib/vz/template/qemu"
+		def lockKey = "proxmox.ve.imageupload.${cloud.regionCode}.${virtualImage?.id}".toString()
+
+		try {
+			//lock = context.acquireLock(lockKey, [timeout: 2l * 60l * 1000l, ttl: 2l * 60l * 1000l]).blockingGet()
+			lock = context.acquireLock(lockKey, [timeout: 15000l, ttl: 15000l]).blockingGet()
+			//hold up to a 1 hour lock for image upload
+			if (virtualImage) {
+				log.info("VIRTUAL IMAGE EXISTS")
+				VirtualImageLocation virtualImageLocation
+				try {
+					log.debug("searching for virtualImageLocation: $virtualImage.id")
+					//virtualImageLocation = context.async.virtualImage.location.findVirtualImageLocation(virtualImage.id, cloud.id, cloud.regionCode, null, false).blockingGet()
+					virtualImageLocation = context.async.virtualImage.location.find(new DataQuery().withFilters([
+							new DataFilter("refType", "ComputeZone"),
+							new DataFilter("refId", cloud.id),
+							new DataFilter("externalId", virtualImage.externalId)
+					])).blockingGet()
+					log.debug("Got VirtualImageLocation ($cloud.id, $virtualImage.externalId): $virtualImageLocation")
+
+					if (!virtualImageLocation) {
+						log.info("VIRTUAL IMAGE LOCATION NOT EXISTS")
+						imageExternalId = null
+					} else {
+						log.info("VIRTUAL IMAGE LOCATION EXISTS")
+						imageExternalId = virtualImageLocation.externalId
+					}
+				} catch (e) {
+					log.error "Error in findVirtualImageLocation.. could be not found ${e}", e
+				}
+			}
+			if (!imageExternalId) { //If its userUploaded and still needs uploaded to cloud
+				// Create the image
+				def cloudFiles = context.async.virtualImage.getVirtualImageFiles(virtualImage).blockingGet()
+				log.debug("CloudFiles: $cloudFiles")
+				def imageFile = cloudFiles?.find { cloudFile -> cloudFile.name.toLowerCase().endsWith(".qcow2") }
+				log.debug("ImageFile: $imageFile")
+				def contentLength = imageFile?.getContentLength()
+
+				//def letProxmoxDownloadImage = imageFile?.getURL()?.toString()?.contains('morpheus-images')
+
+				//log.debug("letProxmoxDownloadImage: $letProxmoxDownloadImage")
+
+				//create qcow2 template directory on proxmox
+				log.debug("Ensuring Image Directory on node: $hvNode.sshHost")
+				def dirOut = context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "mkdir -p $remoteImageDir", "", "", "", false, LogLevel.info, true, null, false).blockingGet()
+				log.debug("Dir create SSH Task \"mkdir -p $remoteImageDir\" results: ${dirOut.toMap().toString()}")
+
+				//sftp .qcow2 file to the directory on proxmox server
+				log.debug("uploading Image $imagePathPrefix/$imageFile to $hvNode.sshHost:$remoteImageDir")
+				ProxmoxMiscUtil.sftpUpload(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "$imagePathPrefix/$imageFile", remoteImageDir, null)
+
+				//create blank vm template on proxmox
+				ServiceResponse templateResp = ProxmoxComputeUtil.createImageTemplate(client, authConfig, virtualImage.name, hvNode.externalId, 1, 1024L)
+				log.debug("Create Image response data $templateResp.data")
+				imageExternalId = templateResp.data.templateId
+
+				//import the disk file to the blank vm template
+				String fileName = new File("$imageFile").getName()
+				log.debug("Executing ImportDisk command on node: qm importdisk $templateResp.data.templateId $remoteImageDir/$fileName $targetDS")
+				def diskCreateOut = context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "qm importdisk $templateResp.data.templateId $remoteImageDir/$fileName $targetDS", "", "", "", false, LogLevel.info, true, null, false).blockingGet()
+				log.debug("Disk ImportDisk SSH Task \"qm importdisk $templateResp.data.templateId $remoteImageDir/$fileName $targetDS\" results: ${diskCreateOut.toMap().toString()}")
+
+				//Mount the disk
+				log.debug("Executing DiskMount SSH Task \"qm set $templateResp.data.templateId --scsi0 $targetDS:vm-$templateResp.data.templateId-disk-0\"")
+				def diskMountOut = context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "qm set $templateResp.data.templateId --scsi0 $targetDS:vm-$templateResp.data.templateId-disk-0", "", "", "", false, LogLevel.info, true, null, false).blockingGet()
+				log.debug("Disk Mount SSH Task \"qm set $templateResp.data.templateId --scsi0 $targetDS:vm-$templateResp.data.templateId-disk-0\" results: ${diskMountOut.toMap().toString()}")
+
+				virtualImage.externalId = imageExternalId
+				log.debug("Updating virtual image $virtualImage.name with external ID $virtualImage.externalId")
+				context.async.virtualImage.bulkSave([virtualImage]).blockingGet()
+				VirtualImageLocation virtualImageLocation = new VirtualImageLocation([
+						virtualImage: virtualImage,
+						externalId  : imageExternalId,
+						imageRegion : cloud.regionCode,
+						code        : "proxmox.ve.image.${cloud.id}.$templateResp.data.templateId",
+						internalId  : imageExternalId,
+						refId		: cloud.id,
+						refType		: 'ComputeZone',
+				])
+				context.async.virtualImage.location.create([virtualImageLocation], cloud).blockingGet()
+
+			}
+		} finally {
+			context.releaseLock(lockKey, [lock:lock]).blockingGet()
+		}
+		return imageExternalId
 	}
 
 
@@ -424,6 +620,8 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Wo
 		return 'Proxmox VE Provisioning'
 	}
 
+	///MISSING LOGO issue
+	////GOTCHA that needs to be fixed. The instanceType = instance-type.stackit in the scribe yml doesn't work
 	@Override
 	HostType getHostType() {
 		HostType.vm

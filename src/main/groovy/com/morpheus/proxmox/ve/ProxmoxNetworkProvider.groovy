@@ -64,10 +64,10 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 		NetworkType bridgeNetwork = new NetworkType([
 				code              : 'proxmox-ve-bridge-network',
 				externalType      : 'LinuxBridge',
-				cidrEditable      : false,
-				dhcpServerEditable: false,
+				cidrEditable      : true,
+				dhcpServerEditable: true,
 				dnsEditable       : true,
-				gatewayEditable   : false,
+				gatewayEditable   : true,
 				vlanIdEditable    : false,
 				canAssignPool     : true,
 				name              : 'Proxmox VE Bridge Network',

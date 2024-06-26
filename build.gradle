@@ -45,6 +45,7 @@ dependencies {
 	implementation "org.slf4j:slf4j-api:$slf4jVersion"
 	implementation "org.slf4j:slf4j-parent:$slf4jVersion"
 	implementation 'commons-net:commons-net:3.6'
+	implementation 'com.jcraft:jsch:0.1.55'
 
 	// Include morpheus-core and it's dependencies
 	testImplementation 'io.reactivex.rxjava3:rxjava:3.1.7'
@@ -59,6 +60,7 @@ dependencies {
 	testImplementation "org.spockframework:spock-core"
 	testImplementation "org.spockframework:spock-junit4"  // you can remove this if your code does not rely on old JUnit 4 rules
 	testImplementation 'cglib:cglib-nodep:3.2.12'
+
 }
 
 

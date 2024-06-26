@@ -19,6 +19,7 @@ import com.morpheusdata.core.Plugin
 import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.AccountCredential
 import groovy.util.logging.Slf4j
+import com.morpheusdata.core.MorpheusContext
 
 
 @Slf4j

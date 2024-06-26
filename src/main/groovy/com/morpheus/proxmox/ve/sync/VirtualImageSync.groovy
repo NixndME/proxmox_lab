@@ -48,28 +48,29 @@ class VirtualImageSync {
 
     def execute() {
         try {
-            log.debug "Execute VirtualImageSync STARTED: ${cloud.id}"
+            log.info "Execute VirtualImageSync STARTED: ${cloud.id}"
             def cloudItems = ProxmoxComputeUtil.listTemplates(apiClient, authConfig).data
-            log.debug("Proxmox templates found: $cloudItems")
+            log.info("Proxmox templates found: $cloudItems")
 
             Observable domainRecords = context.async.virtualImage.listIdentityProjections(new DataQuery().withFilter(
                     new DataFilter("account", cloud.account))
             )
 
+            log.info("Creating VritaulImage sync task")
             SyncTask<VirtualImageIdentityProjection, Map, VirtualImage> syncTask = new SyncTask<>(domainRecords, cloudItems)
             syncTask.addMatchFunction { VirtualImageIdentityProjection domainObject, Map cloudItem ->
                 domainObject.externalId == cloudItem.vmid.toString()
             }.onAdd { List<Map> newItems ->
-                addMissingVirtualImages(newItems)
+                //addMissingVirtualImages(newItems)
             }.withLoadObjectDetails { List<SyncTask.UpdateItemDto<VirtualImageIdentityProjection, Map>> updateItems ->
                 Map<Long, SyncTask.UpdateItemDto<VirtualImageIdentityProjection, Map>> updateItemMap = updateItems.collectEntries { [(it.existingItem.id): it]}
                 return context.async.virtualImage.listById(updateItems?.collect { it.existingItem.id }).map { VirtualImage vi ->
                     return new SyncTask.UpdateItem<VirtualImage, Map>(existingItem: vi, masterItem: updateItemMap[vi.id].masterItem)
                 } 
             }.onUpdate { List<SyncTask.UpdateItem<VirtualImage, Map>> updateItems ->
-                updateMatchedVirtualImages(updateItems)
+                //updateMatchedVirtualImages(updateItems)
             }.onDelete { removeItems ->
-                removeMissingVirtualImages(removeItems)
+                //removeMissingVirtualImages(removeItems)
             }.start()
         } catch(e) {
             log.error "Error in VirtualImageSync execute : ${e}", e
@@ -79,7 +80,7 @@ class VirtualImageSync {
 
 
     private addMissingVirtualImages(Collection<Map> addList) {
-        log.debug "addMissingVirtualImages ${addList?.size()}"
+        log.info "addMissingVirtualImages ${addList?.size()}"
 
         def adds = []
         addList.each {
@@ -96,6 +97,7 @@ class VirtualImageSync {
 
 
     private updateMatchedVirtualImages(List<SyncTask.UpdateItem<VirtualImage, Map>> updateItems) {
+        log.info "updateMissingVirtualImages ${addList?.size()}"
         def saves = []
         for (def updateItem in updateItems) {
             def existingItem = updateItem.existingItem

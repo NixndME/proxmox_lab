@@ -1,0 +1,312 @@
+//16 - image for docker
+
+resource "virtual-image" "proxmox-image-morpheus-ubuntu-16_04" {
+  code = "proxmox.image.morpheus.ubuntu.16.04"
+  category = "proxmox.image.morpheus.ubuntu"
+  name = "Morpheus Ubuntu 16.04"
+  imageType = "qcow2"
+  remotePath = "https://s3-us-west-1.amazonaws.com/morpheus-images/kvm/ubuntu/ubuntu-16_04_4-v1-amd64/morpheus-ubuntu-16_04_4-v1-amd64.qcow2"
+  imagePath = "kvm/ubuntu/ubuntu-16_04_4-v1-amd64"
+  isCloudInit = true
+  systemImage = true
+  installAgent = true
+  osType {
+    code = "ubuntu.16.04.64"
+  }
+  zoneType = "proxmox-ve.cloud"
+}
+
+//18
+resource "virtual-image" "proxmox-image-morpheus-ubuntu-18_04-20230131" {
+  code = "proxmox.image.morpheus.ubuntu.18.04.20230131"
+  category = "proxmox.image.morpheus.ubuntu"
+  name = "Morpheus Ubuntu 18.04 20230131"
+  imageType = "qcow2"
+  remotePath = "https://s3-us-west-1.amazonaws.com/morpheus-images/qemu/20230131/ubuntu-18/morpheus-ubuntu-18_04-amd64-20230131.qcow2"
+  imagePath = "qemu/20230131/ubuntu-18"
+  isCloudInit = true
+  systemImage = true
+  installAgent = true
+  osType {
+    code = "ubuntu.18.04.64"
+  }
+  zoneType = "proxmox-ve.cloud"
+}
+
+resource "virtual-image" "proxmox-image-morpheus-ubuntu-18_04-20240304" {
+  code = "proxmox.image.morpheus.ubuntu.18.04.20240304"
+  category = "proxmox.image.morpheus.ubuntu"
+  name = "Morpheus Ubuntu 18.04 20240304"
+  imageType = "qcow2"
+  remotePath = "https://s3-us-west-1.amazonaws.com/morpheus-images/qemu/20240304/ubuntu-18/morpheus-ubuntu-18_04-amd64-20240304.qcow2"
+  imagePath = "qemu/20240304/ubuntu-18"
+  isCloudInit = true
+  systemImage = true
+  installAgent = true
+  osType {
+    code = "ubuntu.18.04.64"
+  }
+  zoneType = "proxmox-ve.cloud"
+}
+
+
+resource "workload-type" "proxmox-ubuntu-18_04" {
+  code = "proxmox-ubuntu-18.04"
+  shortName = "ubuntu"
+  name = "Ubuntu 18.04"
+  account = null
+  ports = [22]
+  containerVersion = "18.04"
+  entryPoint = ""
+  mountLogs = "/var/log"
+  statTypeCode = "vm"
+  logTypeCode = "ubuntu"
+  showServerLogs = true
+  category = "ubuntu"
+  cloneType = "ubuntu"
+  priorityOrder = 0
+  serverType = "vm"
+  providerType = "proxmox-ve"
+  containerPorts = [{code = "ubuntu.22"}]
+  actions = [{code = "ubuntu-remove-node"}]
+  checkTypeCode = "containerCheck"
+  virtualImage = virtual-image.proxmox-image-morpheus-ubuntu-18_04-20240304
+  provisionType = "proxmox-ve.provision"
+  #backupType = "n utanixPrismSnapshot"
+}
+
+resource "workload-type-set" "proxmox-ubuntu-18_04-set" {
+  code = "proxmox-ubuntu-18.04-set"
+  containerType = workload-type.proxmox-ubuntu-18_04
+  priorityOrder = 0
+  dynamicCount = true
+  containerCount = 1
+}
+
+resource "instance-type-layout" "proxmox-ubuntu-18_04-single" {
+  code = "proxmox-ubuntu-18.04-single"
+  name = "Proxmox VM"
+  account = null
+  sortOrder = 18
+  instanceVersion = "18.04"
+  description = "This will provision a single vm"
+  instanceType {
+    code = "ubuntu"
+  }
+  serverCount = 1
+  hasAutoScale = true
+  portCount = 1
+  serverType = "vm"
+  enabled = true
+  creatable = true
+  supportsConvertToManaged = true
+  containers = [
+    workload-type-set.proxmox-ubuntu-18_04-set
+  ]
+  actions = [{code = "ubuntu-add-node"}]
+  provisionType = "proxmox-ve.provision"
+}
+
+resource "scale-action" "proxmox-ubuntu-18_04-single" {
+  code = "proxmox-ubuntu-18.04-single"
+  scaleType = "action"
+  layout = instance-type-layout.proxmox-ubuntu-18_04-single
+  upAction {
+    code = "ubuntu-add-node"
+  }
+  downAction {
+    code = "ubuntu-remove-node"
+  }
+}
+
+
+//20
+
+resource "virtual-image" "proxmox-image-morpheus-ubuntu-20_04-20240304" {
+  code = "proxmox.image.morpheus.ubuntu.20.04.20240304.ubuntu.20.04"
+  category = "proxmox.image.morpheus.ubuntu"
+  name = "Morpheus Ubuntu 20.04.04 20240304"
+  imageType = "qcow2"
+  remotePath = "https://s3-us-west-1.amazonaws.com/morpheus-images/qemu/20240304/ubuntu-20/morpheus-ubuntu-20_04-amd64-20240304.qcow2"
+  imagePath = "qemu/20240304/ubuntu-20"
+  isCloudInit = true
+  systemImage = true
+  installAgent = true
+  osType {
+    code = "ubuntu.20.04.64"
+  }
+  zoneType = "proxmox-ve.cloud"
+}
+
+resource "workload-type" "proxmox-ubuntu-20_04" {
+  code = "proxmox-ubuntu-20.04"
+  shortName = "ubuntu"
+  name = "Ubuntu 20.04"
+  account = null
+  ports = [22]
+  containerVersion = "20.04"
+  entryPoint = ""
+  mountLogs = "/var/log"
+  statTypeCode = "vm"
+  logTypeCode = "ubuntu"
+  showServerLogs = true
+  category = "ubuntu"
+  cloneType = "ubuntu"
+  priorityOrder = 0
+  serverType = "vm"
+  providerType = "proxmox-ve"
+  containerPorts = [{code = "ubuntu.22"}]
+  actions = [{code = "ubuntu-remove-node"}]
+  checkTypeCode = "containerCheck"
+  virtualImage = virtual-image.proxmox-image-morpheus-ubuntu-20_04-20240304
+  provisionType = "proxmox-ve.provision"
+  #backupType = "n utanixPrismSnapshot"
+}
+
+resource "workload-type-set" "proxmox-ubuntu-20_04-set" {
+  code = "proxmox-ubuntu-20.04-set"
+  containerType = workload-type.proxmox-ubuntu-20_04
+  priorityOrder = 0
+  dynamicCount = true
+  containerCount = 1
+}
+
+resource "instance-type-layout" "proxmox-ubuntu-20_04-single" {
+  code = "proxmox-ubuntu-20.04-single"
+  name = "Proxmox VM"
+  account = null
+  sortOrder = 20
+  instanceVersion = "20.04"
+  description = "This will provision a single vm"
+  instanceType {
+    code = "ubuntu"
+  }
+  serverCount = 1
+  hasAutoScale = true
+  portCount = 1
+  serverType = "vm"
+  enabled = true
+  creatable = true
+  supportsConvertToManaged = true
+  containers = [
+    workload-type-set.proxmox-ubuntu-20_04-set
+  ]
+  actions = [{code = "ubuntu-add-node"}]
+  provisionType = "proxmox-ve.provision"
+}
+
+resource "scale-action" "proxmox-ubuntu-20_04-single" {
+  code = "proxmox-ubuntu-20.04-single"
+  scaleType = "action"
+  layout = instance-type-layout.proxmox-ubuntu-20_04-single
+  upAction {
+    code = "ubuntu-add-node"
+  }
+  downAction {
+    code = "ubuntu-remove-node"
+  }
+}
+
+//22
+
+resource "virtual-image" "proxmox-image-morpheus-ubuntu-22_04-20230307" {
+  code = "proxmox.image.morpheus.ubuntu.22.04.20230307"
+  category = "proxmox.image.morpheus.ubuntu"
+  name = "Morpheus Ubuntu 22.04 20230307"
+  imageType = "qcow2"
+  remotePath = "https://s3-us-west-1.amazonaws.com/morpheus-images/qemu/20230307/ubuntu-22/morpheus-ubuntu-22_04-amd64-20230307.qcow2"
+  imagePath = "qemu/20230307/ubuntu-22"
+  isCloudInit = true
+  systemImage = true
+  installAgent = true
+  osType {
+    code = "ubuntu.22.04.64"
+  }
+  zoneType = "proxmox-ve.cloud"
+}
+
+resource "virtual-image" "proxmox-image-morpheus-ubuntu-22_04-20240304" {
+  code = "proxmox.image.morpheus.ubuntu.22.04.20240304"
+  category = "proxmox.image.morpheus.ubuntu"
+  name = "Morpheus Ubuntu 22.04 20240304"
+  imageType = "qcow2"
+  remotePath = "https://s3-us-west-1.amazonaws.com/morpheus-images/qemu/20240304/ubuntu-22/morpheus-ubuntu-22_04-amd64-20240304.qcow2"
+  imagePath = "qemu/20240304/ubuntu-22"
+  isCloudInit = true
+  systemImage = true
+  installAgent = true
+  osType {
+    code = "ubuntu.22.04.64"
+  }
+  zoneType = "proxmox-ve.cloud"
+}
+
+
+resource "workload-type" "proxmox-ubuntu-22_04" {
+  code = "proxmox-ubuntu-22.04"
+  shortName = "ubuntu"
+  name = "Ubuntu 22.04"
+  account = null
+  ports = [22]
+  containerVersion = "22.04"
+  entryPoint = ""
+  mountLogs = "/var/log"
+  statTypeCode = "vm"
+  logTypeCode = "ubuntu"
+  showServerLogs = true
+  category = "ubuntu"
+  cloneType = "ubuntu"
+  priorityOrder = 0
+  serverType = "vm"
+  providerType = "proxmox-ve"
+  containerPorts = [{code = "ubuntu.22"}]
+  actions = [{code = "ubuntu-remove-node"}]
+  checkTypeCode = "containerCheck"
+  virtualImage = virtual-image.proxmox-image-morpheus-ubuntu-22_04-20240304
+  provisionType = "proxmox-ve.provision"
+  #backupType = "n utanixPrismSnapshot"
+}
+
+resource "workload-type-set" "proxmox-ubuntu-22_04-set" {
+  code = "proxmox-ubuntu-22.04-set"
+  containerType = workload-type.proxmox-ubuntu-22_04
+  priorityOrder = 0
+  dynamicCount = true
+  containerCount = 1
+}
+
+resource "instance-type-layout" "proxmox-ubuntu-22_04-single" {
+  code = "proxmox-ubuntu-22.04-single"
+  name = "Proxmox VM"
+  account = null
+  sortOrder = 22
+  instanceVersion = "22.04"
+  description = "This will provision a single vm"
+  instanceType {
+    code = "ubuntu"
+  }
+  serverCount = 1
+  hasAutoScale = true
+  portCount = 1
+  serverType = "vm"
+  enabled = true
+  creatable = true
+  supportsConvertToManaged = true
+  containers = [
+    workload-type-set.proxmox-ubuntu-22_04-set
+  ]
+  actions = [{code = "ubuntu-add-node"}]
+  provisionType = "proxmox-ve.provision"
+}
+
+resource "scale-action" "proxmox-ubuntu-22_04-single" {
+  code = "proxmox-ubuntu-22.04-single"
+  scaleType = "action"
+  layout = instance-type-layout.proxmox-ubuntu-22_04-single
+  upAction {
+    code = "ubuntu-add-node"
+  }
+  downAction {
+    code = "ubuntu-remove-node"
+  }
+}
