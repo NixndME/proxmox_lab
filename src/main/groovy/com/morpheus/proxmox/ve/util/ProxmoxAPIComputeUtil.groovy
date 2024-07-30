@@ -3,14 +3,20 @@ package com.morpheus.proxmox.ve.util
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.response.ServiceResponse
 import groovy.util.logging.Slf4j
+import org.apache.http.HttpEntity
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.client.methods.HttpDelete
+import org.apache.http.client.methods.HttpRequestBase
+import org.apache.http.client.utils.URIBuilder
 import org.apache.http.entity.ContentType
 import groovy.json.JsonSlurper
+import org.apache.http.util.EntityUtils
 
 import java.net.http.HttpClient
 
 
 @Slf4j
-class ProxmoxComputeUtil {
+class ProxmoxAPIComputeUtil {
 
     static final String API_BASE_PATH = "/api2/json"
     static final Long API_CHECK_WAIT_INTERVAL = 2000
@@ -73,19 +79,19 @@ class ProxmoxComputeUtil {
                             'CSRFPreventionToken': tokenCfg.csrfToken
                     ],
                     body     : [
-                            vmid: vmId,
-                            node: node,
-                            vcpus: cpu,
+                            vmid  : vmId,
+                            node  : node,
+                            vcpus : cpu,
                             memory: ramValue,
-                            net0: "bridge=vmbr0,model=e1000e"
+                            net0  : "bridge=vmbr0,model=e1000e"
                     ],
                     contentType: ContentType.APPLICATION_JSON,
                     ignoreSSL: true
             ]
 
-            log.debug("Setting VM Compute Size $vmId on node $node...")
+            log.info("Setting VM Compute Size $vmId on node $node...")
             log.debug("POST path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config")
-            log.debug("POST body is: $opts.body")
+            log.info("POST body is: $opts.body")
             sleep(10000)
             def results = client.callJsonApi(
                     (String) authConfig.apiUrl,
@@ -105,6 +111,31 @@ class ProxmoxComputeUtil {
 
     static startVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
         log.debug("startVM")
+        return actionVMStatus(client, authConfig, nodeId, vmId, "start")
+    }
+
+    static rebootVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
+        log.debug("rebootVM")
+        return actionVMStatus(client, authConfig, nodeId, vmId, "reboot")
+    }
+
+    static shutdownVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
+        log.debug("shutdownVM")
+        return actionVMStatus(client, authConfig, nodeId, vmId, "shutdown")
+    }
+
+    static stopVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
+        log.debug("stopVM")
+        return actionVMStatus(client, authConfig, nodeId, vmId, "stop")
+    }
+
+    static resetVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
+        log.debug("resetVM")
+        return actionVMStatus(client, authConfig, nodeId, vmId, "reset")
+    }
+
+
+    static actionVMStatus(HttpApiClient client, Map authConfig, String nodeId, String vmId, String action) {
 
         try {
             def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
@@ -122,11 +153,10 @@ class ProxmoxComputeUtil {
                     ignoreSSL: true
             ]
 
-            log.debug("Starting New Proxmox VM $vmId on node $nodeId...")
-            log.debug("Post path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/start/")
+            log.debug("Post path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action/")
             def results = client.callJsonApi(
                     (String) authConfig.apiUrl,
-                    "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/start/",
+                    "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action/",
                     null, null,
                     new HttpApiClient.RequestOptions(opts),
                     'POST'
@@ -134,8 +164,46 @@ class ProxmoxComputeUtil {
 
             return results
         } catch (e) {
-            log.error "Error Starting VM: ${e}", e
-            return ServiceResponse.error("Error Starting VM: ${e}")
+            log.error "Error performing $action on VM: ${e}", e
+            return ServiceResponse.error("Error performing $action on VM: ${e}")
+        }
+    }
+
+
+    static destroyVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
+        log.debug("destroyVM")
+        try {
+            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def opts = [
+                    headers  : [
+                            'Content-Type'       : 'application/json',
+                            'Cookie'             : "PVEAuthCookie=$tokenCfg.token",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    body: null,
+                    ignoreSSL: true,
+                    contentType: ContentType.APPLICATION_JSON,
+            ]
+
+            log.info("OPTS: $opts")
+            log.debug("Delete path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/")
+
+            def results = client.callJsonApi(
+                    (String) authConfig.apiUrl,
+                    "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/",
+                    new HttpApiClient.RequestOptions(opts),
+                    'DELETE'
+            )
+
+            log.info("RESPONSE Details: Success: $results.success, Code:$results.errorCode, Content: $results.content, Error: $results.error, $results.msg, Body: $results.data")
+            log.info("RESPONSE Details: ${results.toMap()}")
+            return results
+
+
+        //TODO - check for non 200 response
+        } catch (e) {
+            log.error "Error Destroying VM: ${e}", e
+            return ServiceResponse.error("Error Destroying VM: ${e}")
         }
     }
 
@@ -297,10 +365,11 @@ class ProxmoxComputeUtil {
                     return ServiceResponse.error("Error Provisioning VM. Wait for clone error: ${cloneWaitResult}")
                 }
 
+                log.info("Resizing newly cloned VM. Spec: CPU $vcpus, RAM $ram")
                 ServiceResponse rtnResize = resizeVMCompute(new HttpApiClient(), authConfig, nodeId, nextId, vcpus, ram)
 
                 if (!rtnResize?.success) {
-                    return ServiceResponse.error("Error Sizing VM Compute. Rsize compute error: ${rtnResize}")
+                    return ServiceResponse.error("Error Sizing VM Compute. Resize compute error: ${rtnResize}")
                 }
 
                 //log.debug("Starting New Proxmox VM $nextId on node $nodeId...")

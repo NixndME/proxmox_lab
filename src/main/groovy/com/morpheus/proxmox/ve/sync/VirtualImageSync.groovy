@@ -1,7 +1,7 @@
 package com.morpheus.proxmox.ve.sync
 
 import com.morpheus.proxmox.ve.ProxmoxVePlugin
-import com.morpheus.proxmox.ve.util.ProxmoxComputeUtil
+import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.data.DataFilter
 import com.morpheusdata.core.data.DataQuery
@@ -10,19 +10,12 @@ import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.SyncTask
 import com.morpheusdata.model.Account
 import com.morpheusdata.model.Cloud
-import com.morpheusdata.model.CloudPool
 import com.morpheusdata.model.ImageType
-import com.morpheusdata.model.Network
-import com.morpheusdata.model.OsType
 import com.morpheusdata.model.VirtualImage
 import com.morpheusdata.model.VirtualImageLocation
-import com.morpheusdata.model.projection.NetworkIdentityProjection
 import com.morpheusdata.model.projection.VirtualImageIdentityProjection
 import groovy.util.logging.Slf4j
 import io.reactivex.rxjava3.core.Observable
-
-import static com.morpheusdata.model.ImageType.qcow2
-
 
 @Slf4j
 class VirtualImageSync {
@@ -49,7 +42,7 @@ class VirtualImageSync {
     def execute() {
         try {
             log.info "Execute VirtualImageSync STARTED: ${cloud.id}"
-            def cloudItems = ProxmoxComputeUtil.listTemplates(apiClient, authConfig).data
+            def cloudItems = ProxmoxAPIComputeUtil.listTemplates(apiClient, authConfig).data
             log.info("Proxmox templates found: $cloudItems")
 
             Observable domainRecords = context.async.virtualImage.listIdentityProjections(new DataQuery().withFilter(

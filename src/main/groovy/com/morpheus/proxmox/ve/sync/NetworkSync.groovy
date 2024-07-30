@@ -1,13 +1,12 @@
 package com.morpheus.proxmox.ve.sync
 
 import com.morpheus.proxmox.ve.ProxmoxVePlugin
-import com.morpheus.proxmox.ve.util.ProxmoxComputeUtil
+import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.data.DataQuery
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.SyncTask
 import com.morpheusdata.model.Cloud
-import com.morpheusdata.model.Datastore
 import com.morpheusdata.model.Network
 import com.morpheusdata.model.projection.NetworkIdentityProjection
 import groovy.util.logging.Slf4j
@@ -37,7 +36,7 @@ class NetworkSync {
 
             log.debug "BEGIN: execute NetworkSync: ${cloud.id}"
 
-            def cloudItems = ProxmoxComputeUtil.listProxmoxNetworks(apiClient, authConfig)
+            def cloudItems = ProxmoxAPIComputeUtil.listProxmoxNetworks(apiClient, authConfig)
             def domainRecords = morpheusContext.async.network.listIdentityProjections(
                     new DataQuery().withFilter('typeCode', "proxmox.ve.bridge.$cloud.id")
             )

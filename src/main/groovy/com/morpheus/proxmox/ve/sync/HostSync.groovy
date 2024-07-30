@@ -1,6 +1,7 @@
 package com.morpheus.proxmox.ve.sync
 
 import com.morpheus.proxmox.ve.ProxmoxVePlugin
+import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.SyncTask
@@ -8,7 +9,6 @@ import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.ComputeCapacityInfo
 import com.morpheusdata.model.ComputeServer
 import com.morpheusdata.model.ComputeServerType
-import com.morpheusdata.model.Datastore
 import com.morpheusdata.model.OsType
 import com.morpheusdata.model.projection.ComputeServerIdentityProjection
 import groovy.util.logging.Slf4j
@@ -38,7 +38,7 @@ class HostSync {
         log.debug "Execute HostSync STARTED: ${cloud.id}"
 
         try {
-            def hostListResults = com.morpheus.proxmox.ve.util.ProxmoxComputeUtil.listProxmoxHypervisorHosts(apiClient, authConfig)
+            def hostListResults = ProxmoxAPIComputeUtil.listProxmoxHypervisorHosts(apiClient, authConfig)
             log.debug("Host list results: $hostListResults")
 
             if (hostListResults.success) {

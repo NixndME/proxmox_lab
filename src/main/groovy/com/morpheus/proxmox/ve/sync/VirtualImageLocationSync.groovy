@@ -1,7 +1,7 @@
 package com.morpheus.proxmox.ve.sync
 
 import com.morpheus.proxmox.ve.ProxmoxVePlugin
-import com.morpheus.proxmox.ve.util.ProxmoxComputeUtil
+import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.data.DataFilter
 import com.morpheusdata.core.data.DataOrFilter
@@ -45,7 +45,7 @@ class VirtualImageLocationSync {
     def execute() {
         try {
             log.info "Execute VirtualImageLocationSync STARTED: ${cloud.id}"
-            def cloudItems = ProxmoxComputeUtil.listTemplates(apiClient, authConfig).data
+            def cloudItems = ProxmoxAPIComputeUtil.listTemplates(apiClient, authConfig).data
             log.debug("Proxmox templates found: $cloudItems")
 
             Observable domainRecords = context.async.virtualImage.location.listIdentityProjections(new DataQuery().withFilters([

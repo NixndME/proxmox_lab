@@ -1,22 +1,16 @@
 package com.morpheus.proxmox.ve.sync
 
 import com.morpheus.proxmox.ve.ProxmoxVePlugin
-import com.morpheus.proxmox.ve.util.ProxmoxComputeUtil
+import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheusdata.core.MorpheusContext
-import com.morpheusdata.core.data.DataQuery
 import com.morpheusdata.core.providers.CloudProvider
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.SyncTask
 import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.ComputeServer
-import com.morpheusdata.model.Network
 import com.morpheusdata.model.OsType
 import com.morpheusdata.model.projection.ComputeServerIdentityProjection
-import com.morpheusdata.model.projection.NetworkIdentityProjection
-import com.sun.security.ntlm.Server
 import groovy.util.logging.Slf4j
-
-import static com.morpheusdata.core.util.SyncTask.UpdateItem
 
 @Slf4j
 class VMSync {
@@ -43,7 +37,7 @@ class VMSync {
     def execute() {
         try {
             log.debug "Execute VMSync STARTED: ${cloud.id}"
-            def cloudItems = ProxmoxComputeUtil.listVMs(apiClient, authConfig).data
+            def cloudItems = ProxmoxAPIComputeUtil.listVMs(apiClient, authConfig).data
             def domainRecords = context.async.computeServer.listIdentityProjections(cloud.id, null).filter {
                 it.computeServerTypeCode == 'proxmox-qemu-vm'
             }
@@ -134,7 +128,7 @@ class VMSync {
 
 
     private removeMissingVMs(List<ComputeServerIdentityProjection> removeItems) {
-        log.info("Remove Networks...")
+        log.info("Remove ${removeItems.size()} VMs...")
         context.async.computeServer.bulkRemove(removeItems).blockingGet()
     }
 }

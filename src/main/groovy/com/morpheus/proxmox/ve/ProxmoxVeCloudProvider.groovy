@@ -23,11 +23,10 @@ import com.morpheusdata.model.StorageControllerType
 import com.morpheusdata.model.StorageVolumeType
 import com.morpheusdata.request.ValidateCloudRequest
 import com.morpheusdata.response.ServiceResponse
-import com.morpheus.proxmox.ve.util.ProxmoxComputeUtil
+import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheus.proxmox.ve.sync.HostSync
 import com.morpheus.proxmox.ve.sync.DatastoreSync
 import com.morpheus.proxmox.ve.sync.NetworkSync
-import com.morpheus.proxmox.ve.sync.VirtualImageSync
 import com.morpheus.proxmox.ve.sync.VMSync
 import groovy.util.logging.Slf4j
 
@@ -211,7 +210,9 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		volumeTypes << new StorageVolumeType(
 				name: "Proxmox VM Generic Volume Type",
 				code: "proxmox.vm.generic.volume.type",
-				displayOrder: 0
+				displayOrder: 0,
+				editable: true,
+				resizable: true
 		)
 
 		return volumeTypes
@@ -259,7 +260,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				reconfigureSupported: false,
 				externalDelete: false,
 				hasAutomation: true,
-				agentType: ComputeServerType.AgentType.none,
+				agentType: ComputeServerType.AgentType.guest,
 				platform: PlatformType.unknown,
 				managed: false,
 				provisionTypeCode: 'proxmox-ve-provider',
@@ -313,7 +314,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 
 			// Setup token get using util class
 			log.info("Attempting authentication to populate access token and csrf token.")
-			def tokenTest = ProxmoxComputeUtil.getApiV2Token(username, password, baseUrl)
+			def tokenTest = ProxmoxAPIComputeUtil.getApiV2Token(username, password, baseUrl)
 			if (tokenTest.success) {
 				return new ServiceResponse(success: true, msg: 'Cloud connection validated using provided credentials and URL...')
 			} else {
@@ -354,13 +355,13 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		log.debug("Refresh triggered, service url is: " + cloudInfo.serviceUrl)
 		HttpApiClient client = new HttpApiClient()
 		try {
-
-			(new HostSync(plugin, cloudInfo, client)).execute()
-			(new DatastoreSync(plugin, cloudInfo, client)).execute()
-			(new NetworkSync(plugin, cloudInfo, client)).execute()
-			(new VMSync(plugin, cloudInfo, client, this)).execute()
-			//(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
-			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
+			log.debug("Synchronizing hosts, datastores, networks, VMs and virtual images...")
+			//(new HostSync(plugin, cloudInfo, client)).execute()
+			//(new DatastoreSync(plugin, cloudInfo, client)).execute()
+			//(new NetworkSync(plugin, cloudInfo, client)).execute()
+			//(new VMSync(plugin, cloudInfo, client, this)).execute()
+			////(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
+			//(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
 
 		} catch (e) {
 			log.error("refresh cloud error: ${e}", e)
@@ -380,6 +381,24 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	void refreshDaily(Cloud cloudInfo) {
+		log.debug("Refresh triggered, service url is: " + cloudInfo.serviceUrl)
+		HttpApiClient client = new HttpApiClient()
+		try {
+
+			(new HostSync(plugin, cloudInfo, client)).execute()
+			(new DatastoreSync(plugin, cloudInfo, client)).execute()
+			(new NetworkSync(plugin, cloudInfo, client)).execute()
+			(new VMSync(plugin, cloudInfo, client, this)).execute()
+			//(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
+			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
+
+		} catch (e) {
+			log.error("refresh cloud error: ${e}", e)
+		} finally {
+			if(client) {
+				client.shutdownClient()
+			}
+		}
 	}
 
 	/**
