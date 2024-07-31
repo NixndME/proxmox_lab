@@ -1,13 +1,11 @@
 package com.morpheus.proxmox.ve
 
-import com.morpheus.proxmox.ve.util.ProxmoxHttpApiClient
 import com.morpheusdata.PrepareHostResponse
 import com.morpheusdata.core.AbstractProvisionProvider
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
 import com.morpheusdata.core.data.DataFilter
 import com.morpheusdata.core.data.DataQuery
-import com.morpheusdata.core.providers.ProvisionProvider
 import com.morpheusdata.core.providers.VmProvisionProvider
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.providers.WorkloadProvisionProvider
@@ -218,14 +216,18 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 										 customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
 
 		plans << new ServicePlan([code:'proxmox-ve-vm-2048', name:'1 vCPU, 2GB Memory', description:'1 vCPU, 2GB Memory', sortOrder:2,
-										 maxStorage: 20l * 1024l * 1024l * 1024l, maxMemory: 2l * 1024l * 1024l * 1024l, maxCores:1,
-										 customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
+								  maxStorage: 20l * 1024l * 1024l * 1024l, maxMemory: 2l * 1024l * 1024l * 1024l, maxCores:1,
+								  customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
+
+		plans << new ServicePlan([code:'proxmox-ve-vm-2048-2', name:'2 vCPU, 2GB Memory', description:'2 vCPU, 2GB Memory', sortOrder:2,
+								  maxStorage: 20l * 1024l * 1024l * 1024l, maxMemory: 2l * 1024l * 1024l * 1024l, maxCores:2,
+								  customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
 
 		plans << new ServicePlan([code:'proxmox-ve-vm-4096', name:'1 vCPU, 4GB Memory', description:'1 vCPU, 4GB Memory', sortOrder:3,
 								  maxStorage: 40l * 1024l * 1024l * 1024l, maxMemory: 4l * 1024l * 1024l * 1024l, maxCores:1,
 								  customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
 
-		plans << new ServicePlan([code:'proxmox-ve-vm-4096-2', name:'2 vCPU, 4GB Memory', description:'2 vCPU, 4GB Memory', sortOrder:3,
+		plans << new ServicePlan([code:'proxmox-ve-vm-4096-24', name:'2 vCPU, 4GB Memory', description:'2 vCPU, 4GB Memory', sortOrder:3,
 								  maxStorage: 40l * 1024l * 1024l * 1024l, maxMemory: 4l * 1024l * 1024l * 1024l, maxCores:2,
 								  customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
 
@@ -732,7 +734,8 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		ComputeServer computeServer = context.async.computeServer.get(server.id).blockingGet()
 		def authConfigMap = plugin.getAuthConfig(computeServer.cloud)
 		try {
-			HttpApiClient client = new HttpApiClient()
+			HttpApiClient resizeClient = new HttpApiClient()
+			HttpApiClient rebootClient = new HttpApiClient()
 
 			//Compute
 			computeServer.status = 'resizing'
@@ -757,8 +760,9 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			if (neededMemory > 100000000l || neededMemory < -100000000l || neededCores != 0) {
 				log.info("Resizing VM with specs: ${allocationSpecs}")
 				log.info("Resizing vm: ${workload.getInstance().name} with $server.coresPerSocket cores and $server.maxMemory memory")
-				ProxmoxAPIComputeUtil.resizeVMCompute(client, authConfigMap, computeServer.name, computeServer.externalId, requestedMemory, requestedCores)
-				ProxmoxAPIComputeUtil.rebootVM(client, authConfigMap, computeServer.name, computeServer.externalId)
+				//resizeVMCompute(HttpApiClient client, Map authConfig, String node, String vmId, Long cpu, Long ram)
+				ProxmoxAPIComputeUtil.resizeVMCompute(resizeClient, authConfigMap, computeServer.parentServer.name, computeServer.externalId, requestedCores, requestedMemory)
+				ProxmoxAPIComputeUtil.rebootVM(rebootClient, authConfigMap, computeServer.name, computeServer.externalId)
 			}
 		} catch (e) {
 			log.error("Unable to resize workload: ${e.message}", e)
