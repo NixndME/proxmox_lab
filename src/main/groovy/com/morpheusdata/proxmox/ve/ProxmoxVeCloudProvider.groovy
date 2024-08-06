@@ -1,6 +1,6 @@
-package com.morpheus.proxmox.ve
+package com.morpheusdata.proxmox.ve
 
-import com.morpheus.proxmox.ve.sync.VirtualImageLocationSync
+import com.morpheusdata.proxmox.ve.sync.VirtualImageLocationSync
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
 import com.morpheusdata.core.providers.CloudProvider
@@ -23,11 +23,8 @@ import com.morpheusdata.model.StorageControllerType
 import com.morpheusdata.model.StorageVolumeType
 import com.morpheusdata.request.ValidateCloudRequest
 import com.morpheusdata.response.ServiceResponse
-import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
-import com.morpheus.proxmox.ve.sync.HostSync
-import com.morpheus.proxmox.ve.sync.DatastoreSync
-import com.morpheus.proxmox.ve.sync.NetworkSync
-import com.morpheus.proxmox.ve.sync.VMSync
+import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
+import com.morpheusdata.proxmox.ve.sync.VMSync
 import groovy.util.logging.Slf4j
 
 
@@ -246,9 +243,9 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				externalDelete: false,
 				hasAutomation: false,
 				agentType: ComputeServerType.AgentType.none,
-				platform: PlatformType.unknown,
-				managed: false,
-				provisionTypeCode: 'proxmox-ve-provider',
+				platform: PlatformType.linux,
+				managed: true,
+				provisionTypeCode: 'proxmox-provision-provider',
 				nodeType: 'proxmox-ve-node'
 		)
 		serverTypes << new ComputeServerType (
@@ -261,9 +258,9 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				externalDelete: false,
 				hasAutomation: true,
 				agentType: ComputeServerType.AgentType.guest,
-				platform: PlatformType.unknown,
-				managed: false,
-				provisionTypeCode: 'proxmox-ve-provider',
+				platform: PlatformType.linux,
+				managed: true,
+				provisionTypeCode: 'proxmox-provision-provider',
 				nodeType: 'proxmox-qemu-vm'
 		)
 		return serverTypes
@@ -280,7 +277,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	ServiceResponse validate(Cloud cloudInfo, ValidateCloudRequest validateCloudRequest) {	
-		log.info("validate: {}", cloudInfo)
+		log.debug("validate: {}", cloudInfo)
 		try {
 			if(!cloudInfo) {
 				return new ServiceResponse(success: false, msg: 'No cloud found')
@@ -288,7 +285,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 
 			def username, password
 			def baseUrl = cloudInfo.serviceUrl
-			log.debug("Service URL: $baseUrl")
+			log.debug("Cloud Service URL: $baseUrl")
 
 			// Provided creds vs. Infra > Trust creds
 			if (validateCloudRequest.credentialType == 'username-password') {
@@ -313,7 +310,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 			}
 
 			// Setup token get using util class
-			log.info("Attempting authentication to populate access token and csrf token.")
+			log.debug("Cloud Validation: Attempting authentication to populate access token and csrf token.")
 			def tokenTest = ProxmoxAPIComputeUtil.getApiV2Token(username, password, baseUrl)
 			if (tokenTest.success) {
 				return new ServiceResponse(success: true, msg: 'Cloud connection validated using provided credentials and URL...')
@@ -384,12 +381,12 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		log.debug("Refresh triggered, service url is: " + cloudInfo.serviceUrl)
 		HttpApiClient client = new HttpApiClient()
 		try {
-
-			(new HostSync(plugin, cloudInfo, client)).execute()
-			(new DatastoreSync(plugin, cloudInfo, client)).execute()
-			(new NetworkSync(plugin, cloudInfo, client)).execute()
+			log.debug("Synchronizing hosts, datastores, networks, VMs and virtual images...")
+			(new com.morpheusdata.proxmox.ve.sync.HostSync(plugin, cloudInfo, client)).execute()
+			(new com.morpheusdata.proxmox.ve.sync.DatastoreSync(plugin, cloudInfo, client)).execute()
+			(new com.morpheusdata.proxmox.ve.sync.NetworkSync(plugin, cloudInfo, client)).execute()
 			(new VMSync(plugin, cloudInfo, client, this)).execute()
-			//(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
+			////(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
 			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
 
 		} catch (e) {

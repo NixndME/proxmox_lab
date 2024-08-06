@@ -74,7 +74,7 @@ sourceSets {
 jar {
 	manifest {
 		attributes(
-				'Plugin-Class': 'com.morpheus.proxmox.ve.ProxmoxVePlugin',
+				'Plugin-Class': 'com.morpheusdata.proxmox.ve.ProxmoxVePlugin',
 				'Plugin-Version': version,
 				'Morpheus-Name': 'Proxmox VE',
 				'Morpheus-Organization': 'morpheus',

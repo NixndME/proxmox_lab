@@ -1,4 +1,4 @@
-package com.morpheus.proxmox.ve.util
+package com.morpheusdata.proxmox.ve.util
 
 import com.jcraft.jsch.Channel
 import com.jcraft.jsch.ChannelSftp

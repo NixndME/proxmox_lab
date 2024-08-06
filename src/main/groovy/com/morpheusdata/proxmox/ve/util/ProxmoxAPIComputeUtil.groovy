@@ -1,18 +1,10 @@
-package com.morpheus.proxmox.ve.util
+package com.morpheusdata.proxmox.ve.util
 
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.response.ServiceResponse
 import groovy.util.logging.Slf4j
-import org.apache.http.HttpEntity
-import org.apache.http.client.methods.CloseableHttpResponse
-import org.apache.http.client.methods.HttpDelete
-import org.apache.http.client.methods.HttpRequestBase
-import org.apache.http.client.utils.URIBuilder
 import org.apache.http.entity.ContentType
 import groovy.json.JsonSlurper
-import org.apache.http.util.EntityUtils
-
-import java.net.http.HttpClient
 
 
 @Slf4j
@@ -538,8 +530,9 @@ class ProxmoxAPIComputeUtil {
 
     private static ServiceResponse getApiV2Token(String uid, String pwd, String baseUrl) {
         def path = "access/ticket"
-        //log.debug("getApiV2Token: path: ${path}")
+        log.debug("getApiV2Token: path: ${path}")
         HttpApiClient client = new HttpApiClient()
+
         def rtn = new ServiceResponse(success: false)
         try {
 
@@ -555,13 +548,12 @@ class ProxmoxAPIComputeUtil {
             )
             def results = client.callJsonApi(baseUrl,"${API_BASE_PATH}/${path}", opts, 'POST')
 
-            //log.debug("callListApiV2 results: ${results.toMap()}")
+            log.debug("callListApiV2 API request results: ${results.toMap()}")
             if(results?.success && !results?.hasErrors()) {
                 rtn.success = true
                 def tokenData = results.data.data
                 rtn.data = [csrfToken: tokenData.CSRFPreventionToken, token: tokenData.ticket]
 
-                //log.info("CSRF: $csrfToken, Token: $token")
             } else {
                 rtn.success = false
                 rtn.msg = "Error retrieving token: $results.data"

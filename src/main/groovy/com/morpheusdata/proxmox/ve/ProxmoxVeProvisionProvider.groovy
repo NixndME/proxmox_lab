@@ -1,4 +1,4 @@
-package com.morpheus.proxmox.ve
+package com.morpheusdata.proxmox.ve
 
 import com.morpheusdata.PrepareHostResponse
 import com.morpheusdata.core.AbstractProvisionProvider
@@ -31,13 +31,13 @@ import com.morpheusdata.request.ResizeRequest
 import com.morpheusdata.response.PrepareWorkloadResponse
 import com.morpheusdata.response.ProvisionResponse
 import com.morpheusdata.response.ServiceResponse
-import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
-import com.morpheus.proxmox.ve.util.ProxmoxMiscUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxMiscUtil
 import groovy.util.logging.Slf4j
 
 @Slf4j
 class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements VmProvisionProvider, WorkloadProvisionProvider, WorkloadProvisionProvider.ResizeFacet { //, ProvisionProvider.BlockDeviceNameFacet {
-	public static final String PROVISION_PROVIDER_CODE = 'proxmox-ve.provision'
+	public static final String PROVISION_PROVIDER_CODE = 'proxmox-provision-provider'
 
 	protected MorpheusContext context
 	protected ProxmoxVePlugin plugin
@@ -297,6 +297,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		String nodeId = workload.server.getConfigProperty('proxmoxNode') ?: null
 		DatastoreIdentity targetDS = server.getVolumes().first().datastore
 
+		def containerConfig = workload.getConfigMap()
 
 		if (!targetDS) {
 			targetDS = getDefaultDatastore(cloud.id)
@@ -315,11 +316,17 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		server.parentServer = hvNode
 		server.osDevice = '/dev/sda'
 		server.lvmEnabled = false
+		server.status = 'provisioned'
+		server.serverType = 'vm'
+		server.managed = true
+		server.discovered = false
 		if(server.osType == 'windows') {
 			server.guestConsoleType = ComputeServer.GuestConsoleType.rdp
 		} else if(server.osType == 'linux') {
 			server.guestConsoleType = ComputeServer.GuestConsoleType.ssh
 		}
+		server.account = cloud.getAccount()
+		server.cloud = cloud
 		server = saveAndGet(server)
 
 

@@ -1,7 +1,7 @@
-package com.morpheus.proxmox.ve.sync
+package com.morpheusdata.proxmox.ve.sync
 
-import com.morpheus.proxmox.ve.ProxmoxVePlugin
-import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
+
+import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.data.DataFilter
 import com.morpheusdata.core.data.DataOrFilter
@@ -16,6 +16,7 @@ import com.morpheusdata.model.VirtualImage
 import com.morpheusdata.model.VirtualImageLocation
 import com.morpheusdata.model.projection.VirtualImageIdentityProjection
 import com.morpheusdata.model.projection.VirtualImageLocationIdentityProjection
+import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
 import groovy.util.logging.Slf4j
 import io.reactivex.rxjava3.core.Observable
 

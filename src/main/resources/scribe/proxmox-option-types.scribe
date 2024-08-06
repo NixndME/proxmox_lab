@@ -1,24 +1,2 @@
 
-resource "option-type" "proxmox-nodes" {
-	name = "hypervisorNode"
-	code = "proxmox-nodes"
-	fieldName = "proxmoxNode"
-	fieldContext = "config"
-	fieldLabel = "Proxmox Node"
-	type = "select"
-	displayOrder = 102
-	required = true
-	optionSource = "proxmoxVeNode"
-}
 
-resource "option-type" "proxmox-images" {
-	name = "proxmoxImages"
-	code = "proxmox-images"
-	fieldName = "imageId"
-	fieldContext = "config"
-	fieldLabel = "Proxmox Image"
-	type = "select"
-	displayOrder = 103
-	required = true
-	optionSource = "proxmoxVeProvisionImage"
-}

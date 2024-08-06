@@ -1,7 +1,7 @@
-package com.morpheus.proxmox.ve.sync
+package com.morpheusdata.proxmox.ve.sync
 
-import com.morpheus.proxmox.ve.ProxmoxVePlugin
-import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
+import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
+import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.SyncTask

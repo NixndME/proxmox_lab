@@ -1,7 +1,6 @@
-package com.morpheus.proxmox.ve.sync
+package com.morpheusdata.proxmox.ve.sync
 
-import com.morpheus.proxmox.ve.ProxmoxVePlugin
-import com.morpheus.proxmox.ve.util.ProxmoxAPIComputeUtil
+
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.providers.CloudProvider
 import com.morpheusdata.core.util.HttpApiClient
@@ -10,6 +9,8 @@ import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.ComputeServer
 import com.morpheusdata.model.OsType
 import com.morpheusdata.model.projection.ComputeServerIdentityProjection
+import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
+import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
 import groovy.util.logging.Slf4j
 
 @Slf4j
