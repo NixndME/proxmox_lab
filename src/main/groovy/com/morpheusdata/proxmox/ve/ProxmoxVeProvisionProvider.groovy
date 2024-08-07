@@ -162,6 +162,26 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 	@Override
 	Collection<OptionType> getNodeOptionTypes() {
 		Collection<OptionType> nodeOptions = []
+
+		nodeOptions << new OptionType(
+				name: 'virtual image',
+				category:'provisionType.proxmox.custom',
+				code: 'provisionType.proxmox.custom.containerType.virtualImageId',
+				fieldContext: 'containerType',
+				fieldName: 'virtualImage.id',
+				fieldCode: 'gomorpheus.label.vmImage',
+				fieldLabel: 'VM Image',
+				fieldGroup: null,
+				inputType: OptionType.InputType.SELECT,
+				displayOrder:10,
+				fieldClass:null,
+				required: false,
+				editable: false,
+				noSelection: 'Select',
+				optionSourceType: "proxmox",
+				optionSource: 'proxmoxVirtualImages'
+		)
+
 		return nodeOptions
 	}
 
@@ -207,9 +227,9 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 	@Override
 	Collection<ServicePlan> getServicePlans() {
 		Collection<ServicePlan> plans = []
-		plans << new ServicePlan([code:'proxmox-ve-vm-512', name:'1 vCPU, 512MB Memory', description:'1 vCPU, 512MB Memory', sortOrder:0,
-										 maxStorage:10l * 1024l * 1024l * 1024l, maxMemory: 1l * 512l * 1024l * 1024l, maxCores:1,
-										 customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
+		//plans << new ServicePlan([code:'proxmox-ve-vm-512', name:'1 vCPU, 512MB Memory', description:'1 vCPU, 512MB Memory', sortOrder:0,
+		//								 maxStorage:10l * 1024l * 1024l * 1024l, maxMemory: 1l * 512l * 1024l * 1024l, maxCores:1,
+		//								 customMaxStorage:true, customMaxDataStorage:true, addVolumes:true])
 
 		plans << new ServicePlan([code:'proxmox-ve-vm-1024', name:'1 vCPU, 1GB Memory', description:'1 vCPU, 1GB Memory', sortOrder:1,
 										 maxStorage: 10l * 1024l * 1024l * 1024l, maxMemory: 1l * 1024l * 1024l * 1024l, maxCores:1,

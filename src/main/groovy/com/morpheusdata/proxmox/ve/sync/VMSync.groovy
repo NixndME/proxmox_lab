@@ -40,7 +40,7 @@ class VMSync {
             log.debug "Execute VMSync STARTED: ${cloud.id}"
             def cloudItems = ProxmoxAPIComputeUtil.listVMs(apiClient, authConfig).data
             def domainRecords = context.async.computeServer.listIdentityProjections(cloud.id, null).filter {
-                it.computeServerTypeCode == 'proxmox-qemu-vm'
+                it.computeServerTypeCode == 'proxmox-qemu-vm-unmanaged'
             }
 
             log.debug("VM cloudItems: ${cloudItems.collect { it.toString() }}")
@@ -79,7 +79,7 @@ class VMSync {
         }.toMap {it.externalId }.blockingGet()
 
         def computeServerType = cloudProvider.computeServerTypes.find {
-            it.code == 'proxmox-qemu-vm'
+            it.code == 'proxmox-qemu-vm-unmanaged'
         }
 
         items.each { Map cloudItem ->

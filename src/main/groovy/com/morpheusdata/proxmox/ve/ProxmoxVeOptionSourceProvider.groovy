@@ -42,7 +42,8 @@ class ProxmoxVeOptionSourceProvider extends AbstractOptionSourceProvider {
 
     @Override
     List<String> getMethodNames() {
-        return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode'])
+        //return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode'])
+        return new ArrayList<String>(['proxmoxVeNode'])
     }
 
 

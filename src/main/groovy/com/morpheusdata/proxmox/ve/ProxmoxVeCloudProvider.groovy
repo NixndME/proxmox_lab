@@ -246,7 +246,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				platform: PlatformType.linux,
 				managed: true,
 				provisionTypeCode: 'proxmox-provision-provider',
-				nodeType: 'proxmox-ve-node'
+				nodeType: 'morpheus-vm-node'
 		)
 		serverTypes << new ComputeServerType (
 				name: 'Proxmox VE VM',
@@ -261,7 +261,22 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				platform: PlatformType.linux,
 				managed: true,
 				provisionTypeCode: 'proxmox-provision-provider',
-				nodeType: 'proxmox-qemu-vm'
+				nodeType: 'morpheus-vm-node'
+		)
+		serverTypes << new ComputeServerType (
+				name: 'Proxmox VE VM',
+				code: 'proxmox-qemu-vm-unmanaged',
+				description: 'Proxmox VE Qemu VM',
+				vmHypervisor: false,
+				controlPower: true,
+				reconfigureSupported: false,
+				externalDelete: false,
+				hasAutomation: true,
+				agentType: ComputeServerType.AgentType.none,
+				platform: PlatformType.linux,
+				managed: false,
+				provisionTypeCode: 'proxmox-provision-provider',
+				nodeType: 'unmanaged'
 		)
 		return serverTypes
 	}
@@ -334,7 +349,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		
 		plugin.getNetworkProvider().initializeProvider(cloudInfo)
 
-
+		refreshDaily(cloudInfo)
 		return ServiceResponse.success()
 	}
 
