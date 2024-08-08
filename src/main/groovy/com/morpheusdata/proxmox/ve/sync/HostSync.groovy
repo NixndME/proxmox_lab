@@ -33,7 +33,6 @@ class HostSync {
     }
 
 
-
     def execute() {
         log.debug "Execute HostSync STARTED: ${cloud.id}"
 
@@ -137,14 +136,15 @@ class HostSync {
             //updateMachineMetrics()
         }
 
-        //Example:
-        // Nutanix - https://github.com/gomorpheus/morpheus-nutanix-prism-plugin/blob/api-1.0.x/src/main/groovy/com/morpheusdata/nutanix/prism/plugin/sync/HostsSync.groovy
+        //Examples:
+        // Nutanix - https://github.com/gomorpheus/morpheus-nutanix-prism-plugin/blob/api-1.1.x/src/main/groovy/com/morpheusdata/nutanix/prism/plugin/sync/HostsSync.groovy
+        // XCP-ng - https://github.com/gomorpheus/morpheus-xenserver-plugin/blob/main/src/main/groovy/com/morpheusdata/xen/sync/HostSync.groovy
         // Openstack - https://github.com/gomorpheus/morpheus-openstack-plugin/blob/main/src/main/groovy/com/morpheusdata/openstack/plugin/sync/HostsSync.groovy
     }
 
 
     private removeMissingHosts(Cloud cloud, List<ComputeServerIdentityProjection> removeList) {
-        log.info("Remove Hosts...")
+        log.debug("Remove Hosts...")
         morpheusContext.async.computeServer.bulkRemove(removeList).blockingGet()
     }
 

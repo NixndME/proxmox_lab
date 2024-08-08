@@ -75,7 +75,7 @@ class VMSync {
         def newVMs = []
 
         def hostIdentitiesMap = context.async.computeServer.listIdentityProjections(cloud.id, null).filter {
-            it.computeServerTypeCode == 'proxmox-ve-node'
+            it.computeServerTypeCode == 'proxmox-qemu-vm'
         }.toMap {it.externalId }.blockingGet()
 
         def computeServerType = cloudProvider.computeServerTypes.find {

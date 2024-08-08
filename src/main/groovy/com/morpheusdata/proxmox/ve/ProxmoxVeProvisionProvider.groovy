@@ -146,11 +146,12 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 				global:false,
 				placeHolder:null,
 				helpBlock:'Skipping Agent installation will result in a lack of logging and guest operating system statistics. Automation scripts may also be adversely affected.',
-				defaultValue: true,
+				defaultValue: false,
 				custom:false,
 				fieldClass:null
 		)
 */
+
 		return options
 	}
 
@@ -166,7 +167,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		nodeOptions << new OptionType(
 				name: 'virtual image',
 				category:'provisionType.proxmox.custom',
-				code: 'provisionType.proxmox.custom.containerType.virtualImageId',
+				code: 'proxmox-node-image',
 				fieldContext: 'containerType',
 				fieldName: 'virtualImage.id',
 				fieldCode: 'gomorpheus.label.vmImage',
@@ -304,10 +305,8 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 	ServiceResponse<ProvisionResponse> runWorkload(Workload workload, WorkloadRequest workloadRequest, Map opts) {
 		log.debug("In runWorkload...")
 
-		log.info("Cloud-Init User-Data User: $workloadRequest.cloudConfigUser")
-		log.info("Cloud-Init User-Data Network: $workloadRequest.cloudConfigNetwork")
-
-		//context.async.process.startProcessStep(workloadRequest.process , new ProcessEvent(type: ProcessEvent.ProcessType.general), 'completed').blockingGet()
+		log.debug("Cloud-Init User-Data User: $workloadRequest.cloudConfigUser")
+		log.debug("Cloud-Init User-Data Network: $workloadRequest.cloudConfigNetwork")
 
 		ComputeServer server = workload.server
 		Cloud cloud = server.cloud
@@ -317,15 +316,12 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		String nodeId = workload.server.getConfigProperty('proxmoxNode') ?: null
 		DatastoreIdentity targetDS = server.getVolumes().first().datastore
 
-		def containerConfig = workload.getConfigMap()
-
 		if (!targetDS) {
 			targetDS = getDefaultDatastore(cloud.id)
 		}
 
 		ComputeServer hvNode = getHypervisorHostByExternalId(cloud.id, nodeId)
 		if (!hvNode.sshHost || !hvNode.sshUsername || !hvNode.sshPassword) {
-			//context.async.process.startProcessStep(workloadRequest.process, new ProcessEvent(type: ProcessEvent.ProcessType.provisionDeploy), 'completed').blockingGet()
 			return ServiceResponse.error("SSH credentials required on host for provisioning to work. Edit the hypervisor host properties under the cloud Hosts tab.")
 		}
 
@@ -349,9 +345,6 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		server.cloud = cloud
 		server = saveAndGet(server)
 
-
-		//context.async.process.startProcessStep(workloadRequest.process, new ProcessEvent(type: ProcessEvent.ProcessType.provisionDeploy), 'completed').blockingGet()
-
 		log.info("Provisioning/cloning: ${workload.getInstance().name} from Image Id: $imageExternalId on node: $nodeId")
 		log.info("Provisioning/cloning: ${workload.getInstance().name} with $server.coresPerSocket cores and $server.maxMemory memory")
 		ServiceResponse rtnClone = ProxmoxAPIComputeUtil.cloneTemplate(client, authConfig, imageExternalId, workload.getInstance().name, nodeId, server.maxCores, server.maxMemory)
@@ -366,9 +359,10 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			return ServiceResponse.error("Provisioning failed: $rtnClone.msg")
 		}
 
-		log.info("OPTS: $opts")
+		def installAgentAfter = false
+		log.debug("OPTS: $opts")
 		if(virtualImage?.isCloudInit() && workloadRequest?.cloudConfigUser) {
-			log.info("CONFIGURING CLOUD INIT")
+			log.info(log.debug("Configuring Cloud-Init"))
 			log.debug("Performing action on hypervisor node: $nodeId, $hvNode.sshHost, $hvNode.sshUsername")
 			log.debug("Ensuring snippets directory on node: $nodeId")
 			context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "mkdir -p /var/lib/vz/snippets", "", "", "", false, LogLevel.info, true, null, false).blockingGet()
@@ -382,31 +376,25 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			String ciMountCommand = "qm set ${rtnClone.data.vmId} --cicustom \"user=local:snippets/${rtnClone.data.vmId}-cloud-init-user-data.yml,network=local:snippets/${rtnClone.data.vmId}-cloud-init-network.yml\""
 			context.executeSshCommand(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, ciMountCommand, "", "", "", false, LogLevel.info, true, null, false).blockingGet()
 		} else {
-			log.info("NOT CONFIGURING CLOUD INIT")
+			log.info("Non Cloud-Init deployment...")
+			if (!opts.noAgent) {
+				installAgentAfter = true
+			}
 		}
 
 		ProxmoxAPIComputeUtil.startVM(client, authConfig, nodeId, rtnClone.data.vmId)
 
-		log.info("runWorkload return for INSTALLAGENT: ${!(virtualImage?.isCloudInit())}")
 		return new ServiceResponse<ProvisionResponse>(
 				true,
 				"Provisioned",
 				null,
 				new ProvisionResponse(
 						success: true,
-						//
-						//noAgent: false,
 						skipNetworkWait: false,
-						installAgent: false, //!(virtualImage?.isCloudInit), //set this to true, if not using cloud init. TODO: Test whether noAgent will override
-						//
-
-						externalId: server.externalId,
-						//publicIp: "10.10.10.10",
-						//privateIp: "10.10.50.1",
-
+						installAgent: installAgentAfter,
+						externalId: server.externalId
 				)
 		)
-
 	}
 
 
@@ -457,11 +445,10 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		def lockKey = "proxmox.ve.imageupload.${cloud.regionCode}.${virtualImage?.id}".toString()
 
 		try {
-			//lock = context.acquireLock(lockKey, [timeout: 2l * 60l * 1000l, ttl: 2l * 60l * 1000l]).blockingGet()
-			lock = context.acquireLock(lockKey, [timeout: 15000l, ttl: 15000l]).blockingGet()
 			//hold up to a 1 hour lock for image upload
+			lock = context.acquireLock(lockKey, [timeout: 2l * 60l * 1000l, ttl: 2l * 60l * 1000l]).blockingGet()
 			if (virtualImage) {
-				log.info("VIRTUAL IMAGE EXISTS")
+				log.info("VIRTUAL IMAGE: Already Exists")
 				VirtualImageLocation virtualImageLocation
 				try {
 					log.debug("searching for virtualImageLocation: $virtualImage.id")
@@ -474,27 +461,23 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 					log.debug("Got VirtualImageLocation ($cloud.id, $virtualImage.externalId): $virtualImageLocation")
 
 					if (!virtualImageLocation) {
-						log.info("VIRTUAL IMAGE LOCATION NOT EXISTS")
+						log.info("VIRTUAL IMAGE: VirtualImageLocation doesn't exist")
 						imageExternalId = null
 					} else {
-						log.info("VIRTUAL IMAGE LOCATION EXISTS")
+						log.info("VIRTUAL IMAGE: VirtualImageLocation already exists")
 						imageExternalId = virtualImageLocation.externalId
 					}
 				} catch (e) {
 					log.error "Error in findVirtualImageLocation.. could be not found ${e}", e
 				}
 			}
-			if (!imageExternalId) { //If its userUploaded and still needs uploaded to cloud
+			if (!imageExternalId) { //If its userUploaded and still needs to be uploaded to cloud
 				// Create the image
 				def cloudFiles = context.async.virtualImage.getVirtualImageFiles(virtualImage).blockingGet()
 				log.debug("CloudFiles: $cloudFiles")
 				def imageFile = cloudFiles?.find { cloudFile -> cloudFile.name.toLowerCase().endsWith(".qcow2") }
 				log.debug("ImageFile: $imageFile")
 				def contentLength = imageFile?.getContentLength()
-
-				//def letProxmoxDownloadImage = imageFile?.getURL()?.toString()?.contains('morpheus-images')
-
-				//log.debug("letProxmoxDownloadImage: $letProxmoxDownloadImage")
 
 				//create qcow2 template directory on proxmox
 				log.debug("Ensuring Image Directory on node: $hvNode.sshHost")

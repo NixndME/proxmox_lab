@@ -81,10 +81,9 @@ class ProxmoxAPIComputeUtil {
                     ignoreSSL: true
             ]
 
-            log.info("Setting VM Compute Size $vmId on node $node...")
+            log.debug("Setting VM Compute Size $vmId on node $node...")
             log.debug("POST path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config")
-            log.info("POST body is: $opts.body")
-            sleep(10000)
+
             def results = client.callJsonApi(
                     (String) authConfig.apiUrl,
                     "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config",
@@ -346,7 +345,6 @@ class ProxmoxAPIComputeUtil {
 
             def resultData = new JsonSlurper().parseText(results.content)
 
-            //def resultData = results.content
             if(results?.success && !results?.hasErrors()) {
                 rtn.success = true
                 rtn.data = resultData
@@ -364,17 +362,7 @@ class ProxmoxAPIComputeUtil {
                     return ServiceResponse.error("Error Sizing VM Compute. Resize compute error: ${rtnResize}")
                 }
 
-                //log.debug("Starting New Proxmox VM $nextId on node $nodeId...")
-                //opts.body = [vmid: nextId, node: nodeId]
-                //def startResults = client.callJsonApi(
-                //        (String) authConfig.apiUrl,
-                //        "${authConfig.v2basePath}/nodes/$nodeId/qemu/$nextId/status/start",
-                //        null, null,
-                //        new HttpApiClient.RequestOptions(opts),
-                //        'POST'
-                //)
                 rtn.data.vmId = nextId
-                //rtn.data.startResult = startResults.success
             } else {
                 rtn.msg = "Provisioning failed: ${results.toMap()}"
                 rtn.success = false
@@ -492,7 +480,7 @@ class ProxmoxAPIComputeUtil {
     
     
     private static ServiceResponse callListApiV2(HttpApiClient client, String path, Map authConfig) {
-        //log.debug("callListApiV2: path: ${path}")
+        log.debug("callListApiV2: path: ${path}")
 
         def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
         def rtn = new ServiceResponse(success: false)
@@ -548,7 +536,7 @@ class ProxmoxAPIComputeUtil {
             )
             def results = client.callJsonApi(baseUrl,"${API_BASE_PATH}/${path}", opts, 'POST')
 
-            log.debug("callListApiV2 API request results: ${results.toMap()}")
+            log.debug("getApiV2Token API request results: ${results.toMap()}")
             if(results?.success && !results?.hasErrors()) {
                 rtn.success = true
                 def tokenData = results.data.data

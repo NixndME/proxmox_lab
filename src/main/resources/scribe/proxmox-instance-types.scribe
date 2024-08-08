@@ -1,28 +1,3 @@
-resource "option-type" "instanceType-proxmox-image" {
-  code         = "instanceType.proxmox.image"
-  type         = "select"
-  name         = "Image"
-  category     = "proxmox.image"
-  fieldName    = "imageId"
-  optionSource = "virtualImages"
-  fieldCode    = "gomorpheus.optiontype.Image"
-  fieldLabel   = "Image"
-  fieldContext = "config"
-  fieldGroup   = "Options"
-  required     = true
-  enabled      = true
-  editable     = false
-  global       = false
-  placeHolder  = null
-  helpBlock    = ""
-  defaultValue = null
-  custom       = false
-  displayOrder = 1
-  fieldClass   = null
-  description  = "Choose from a list of Virtual Images that might want to be provisioned."
-}
-
-
 resource "workload-type" "proxmox-1_0" {
   code             = "proxmox-1.0"
   shortName        = "proxmox"
@@ -72,9 +47,7 @@ resource "instance-type" "proxmox-provision-provider" {
   pluginIconHidpiPath     = "proxmox-logo-stacked-color.svg"
   pluginIconDarkPath      = "proxmox-full-lockup-inverted-color.svg"
   pluginIconDarkHidpiPath = "proxmox-logo-stacked-inverted-color.svg"
-  optionTypes = [
-    "instanceType.proxmox.image"
-  ]
+  optionTypes             = ["instanceType.proxmox.image", "instanceType.proxmox.node"]
 }
 
 

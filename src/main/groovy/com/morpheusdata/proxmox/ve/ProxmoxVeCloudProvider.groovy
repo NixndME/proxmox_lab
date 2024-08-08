@@ -1,5 +1,6 @@
 package com.morpheusdata.proxmox.ve
 
+import com.morpheusdata.proxmox.ve.sync.HostSync
 import com.morpheusdata.proxmox.ve.sync.VirtualImageLocationSync
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
@@ -368,11 +369,10 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		HttpApiClient client = new HttpApiClient()
 		try {
 			log.debug("Synchronizing hosts, datastores, networks, VMs and virtual images...")
-			//(new HostSync(plugin, cloudInfo, client)).execute()
+			(new HostSync(plugin, cloudInfo, client)).execute()
 			//(new DatastoreSync(plugin, cloudInfo, client)).execute()
 			//(new NetworkSync(plugin, cloudInfo, client)).execute()
 			//(new VMSync(plugin, cloudInfo, client, this)).execute()
-			////(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
 			//(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
 
 		} catch (e) {

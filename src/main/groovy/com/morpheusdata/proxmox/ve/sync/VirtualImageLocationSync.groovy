@@ -271,10 +271,12 @@ class VirtualImageLocationSync {
                 status     : 'Active',
                 minDisk    : cloudItem.maxdisk,
                 minRam     : cloudItem.minRam,
-                isPublic   : false,
+                //isPublic   : false,
                 externalId : cloudItem.vmid,
-                imageRegion: regionCode,
-                systemImage: false
+                //imageRegion: regionCode,
+                //systemImage: false,
+                refType     : 'ComputeZone',
+                refId       : "${cloud.id}"
         ]
 
         return imageConfig

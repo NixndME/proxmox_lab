@@ -42,8 +42,31 @@ class ProxmoxVeOptionSourceProvider extends AbstractOptionSourceProvider {
 
     @Override
     List<String> getMethodNames() {
-        //return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode'])
-        return new ArrayList<String>(['proxmoxVeNode'])
+        return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode'])
+    }
+
+
+    def proxmoxVeNode(args) {
+        log.debug "proxmoxVeNode: ${args}"
+        def cloudId = args?.size() > 0 ? args.getAt(0).zoneId.toLong() : null
+        def options = []
+
+        def domainRecords = morpheusContext.async.computeServer.listIdentityProjections(cloudId, null).filter {
+            ComputeServerIdentityProjection projection ->
+                if (projection.category == "proxmox.ve.host.$cloudId") {
+                    return true
+                }
+                false
+        }.blockingSubscribe() {
+            options << [name: it.name, value: it.externalId]
+        }
+
+        if (options.size() > 0) {
+            options = options.sort { it.name }
+        }
+
+        log.error("FOUND ${options.size()} ComputeServer Nodes...")
+        return options
     }
 
 
@@ -98,31 +121,6 @@ class ProxmoxVeOptionSourceProvider extends AbstractOptionSourceProvider {
         }
 
         log.error("FOUND ${options.size()} VirtualImages...")
-        return options
-    }
-
-
-    def proxmoxVeNode(args) {
-        log.debug "proxmoxVeNode: ${args}"
-        def cloudId = args?.size() > 0 ? args.getAt(0).zoneId.toLong() : null
-
-        def options = []
-
-        def domainRecords = morpheusContext.async.computeServer.listIdentityProjections(cloudId, null).filter {
-            ComputeServerIdentityProjection projection ->
-                if (projection.category == "proxmox.ve.host.$cloudId") {
-                    return true
-                }
-                false
-        }.blockingSubscribe() {
-            options << [name: it.name, value: it.externalId]
-        }
-
-        if (options.size() > 0) {
-            options = options.sort { it.name }
-        }
-
-        log.error("FOUND ${options.size()} ComputeServer Nodes...")
         return options
     }
 }
