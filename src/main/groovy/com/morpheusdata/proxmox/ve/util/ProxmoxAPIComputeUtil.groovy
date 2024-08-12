@@ -176,7 +176,7 @@ class ProxmoxAPIComputeUtil {
                     contentType: ContentType.APPLICATION_JSON,
             ]
 
-            log.info("OPTS: $opts")
+            log.debug("Delete Opts: $opts")
             log.debug("Delete path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/")
 
             def results = client.callJsonApi(
@@ -186,10 +186,8 @@ class ProxmoxAPIComputeUtil {
                     'DELETE'
             )
 
-            log.info("RESPONSE Details: Success: $results.success, Code:$results.errorCode, Content: $results.content, Error: $results.error, $results.msg, Body: $results.data")
-            log.info("RESPONSE Details: ${results.toMap()}")
+            log.debug("VM Delete Response Details: ${results.toMap()}")
             return results
-
 
         //TODO - check for non 200 response
         } catch (e) {
