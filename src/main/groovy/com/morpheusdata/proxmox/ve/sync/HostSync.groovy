@@ -108,6 +108,7 @@ class HostSync {
                 if (!morpheusContext.async.computeServer.bulkCreate([newServer]).blockingGet()){
                     log.error "Error in creating host server ${newServer}"
                 }
+
                 updateMachineMetrics(
                         newServer,
                         cloudItem.maxcpu?.toLong(),
@@ -126,14 +127,35 @@ class HostSync {
 
 
     private updateMatchedHosts(Cloud cloud, List<SyncTask.UpdateItem<ComputeServer, Map>> updateItems) {
-        log.info("Update functionality to be implemented here...")
+        log.info("Updating ${updateItems.size()} Hosts...")
 
         for(def updateItem in updateItems) {
             def existingItem = updateItem.existingItem
             def cloudItem = updateItem.masterItem
+            def doUpdate = false
 
-            //Add update logic here...
-            //updateMachineMetrics()
+            if (cloudItem.hostname != existingItem.hostname) {
+                existingItem.hostname = cloudItem.hostname
+                doUpdate = true
+            }
+
+            if (cloudItem.externalIp != existingItem.externalIp) {
+                existingItem.setExternalIp(cloudItem.externalIp)
+                doUpdate = true
+            }
+
+            doUpdate ? morpheusContext.async.computeServer.bulkSave([existingItem]).blockingGet() : null
+
+            updateMachineMetrics(
+                    existingItem,
+                    cloudItem.maxcpu?.toLong(),
+                    cloudItem.maxdisk?.toLong(),
+                    cloudItem.disk?.toLong(),
+                    cloudItem.maxmem?.toLong(),
+                    cloudItem.mem.toLong(),
+                    cloudItem.maxcpu?.toLong(),
+                    (cloudItem.status == 'online') ? ComputeServer.PowerState.on : ComputeServer.PowerState.off
+            )
         }
 
         //Examples:

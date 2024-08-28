@@ -6,6 +6,7 @@ import com.morpheusdata.core.providers.CloudProvider
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.SyncTask
 import com.morpheusdata.model.Cloud
+import com.morpheusdata.model.ComputeCapacityInfo
 import com.morpheusdata.model.ComputeServer
 import com.morpheusdata.model.OsType
 import com.morpheusdata.model.projection.ComputeServerIdentityProjection
@@ -118,9 +119,30 @@ class VMSync {
         for (def updateItem in updateItems) {
             def existingItem = updateItem.existingItem
             def cloudItem = updateItem.masterItem
+            def doUpdate = false
 
-            //Add update logic here...
-            //updateMachineMetrics()
+            if (cloudItem.hostname != existingItem.hostname) {
+                existingItem.hostname = cloudItem.hostname
+                doUpdate = true
+            }
+
+            if (cloudItem.externalIp != existingItem.externalIp) {
+                existingItem.setExternalIp(cloudItem.externalIp)
+                doUpdate = true
+            }
+
+            doUpdate ? context.async.computeServer.bulkSave([existingItem]).blockingGet() : null
+
+            updateMachineMetrics(
+                    existingItem,
+                    cloudItem.maxcpu?.toLong(),
+                    cloudItem.maxdisk?.toLong(),
+                    cloudItem.disk?.toLong(),
+                    cloudItem.maxmem?.toLong(),
+                    cloudItem.mem.toLong(),
+                    cloudItem.maxcpu?.toLong(),
+                    (cloudItem.status == 'online') ? ComputeServer.PowerState.on : ComputeServer.PowerState.off
+            )
         }
 
         //Example:
@@ -132,4 +154,63 @@ class VMSync {
         log.info("Remove ${removeItems.size()} VMs...")
         context.async.computeServer.bulkRemove(removeItems).blockingGet()
     }
+
+
+    private updateMachineMetrics(ComputeServer server, Long maxCores, Long maxStorage, Long usedStorage, Long maxMemory, Long usedMemory, Long maxCpu, ComputeServer.PowerState status) {
+        log.debug "updateMachineMetrics for ${server}"
+        try {
+            def updates = !server.getComputeCapacityInfo()
+            ComputeCapacityInfo capacityInfo = server.getComputeCapacityInfo() ?: new ComputeCapacityInfo()
+
+            if(capacityInfo.maxCores != maxCores || server.maxCores != maxCores) {
+                capacityInfo.maxCores = maxCores
+                server?.maxCores = maxCores
+                updates = true
+            }
+
+            if(capacityInfo.maxStorage != maxStorage || server.maxStorage != maxStorage) {
+                capacityInfo.maxStorage = maxStorage
+                server?.maxStorage = maxStorage
+                updates = true
+            }
+
+            if(capacityInfo.usedStorage != usedStorage || server.usedStorage != usedStorage) {
+                capacityInfo.usedStorage = usedStorage
+                server?.usedStorage = usedStorage
+                updates = true
+            }
+
+            if(capacityInfo.maxMemory != maxMemory || server.maxMemory != maxMemory) {
+                capacityInfo?.maxMemory = maxMemory
+                server?.maxMemory = maxMemory
+                updates = true
+            }
+
+            if(capacityInfo.usedMemory != usedMemory || server.usedMemory != usedMemory) {
+                capacityInfo?.usedMemory = usedMemory
+                server?.usedMemory = usedMemory
+                updates = true
+            }
+
+            if(capacityInfo.maxCpu != maxCpu || server.usedCpu != maxCpu) {
+                capacityInfo?.maxCpu = maxCpu
+                server?.usedCpu = maxCpu
+                updates = true
+            }
+
+            def powerState = capacityInfo.maxCpu > 0 ? ComputeServer.PowerState.on : ComputeServer.PowerState.off
+            if(server.powerState != powerState) {
+                server.powerState = powerState
+                updates = true
+            }
+
+            if(updates == true) {
+                server.capacityInfo = capacityInfo
+                context.async.computeServer.bulkSave([server]).blockingGet()
+            }
+        } catch(e) {
+            log.warn("error updating host stats: ${e}", e)
+        }
+    }
+
 }
