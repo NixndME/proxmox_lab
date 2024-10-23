@@ -8,7 +8,7 @@ import groovy.json.JsonSlurper
 
 
 @Slf4j
-class ProxmoxAPIComputeUtil {
+class ProxmoxApiComputeUtil {
 
     static final String API_BASE_PATH = "/api2/json"
     static final Long API_CHECK_WAIT_INTERVAL = 2000
