@@ -327,7 +327,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 
 			// Setup token get using util class
 			log.debug("Cloud Validation: Attempting authentication to populate access token and csrf token.")
-			def tokenTest = ProxmoxAPIComputeUtil.getApiV2Token(username, password, baseUrl)
+			def tokenTest = ProxmoxApiComputeUtil.getApiV2Token(username, password, baseUrl)
 			if (tokenTest.success) {
 				return new ServiceResponse(success: true, msg: 'Cloud connection validated using provided credentials and URL...')
 			} else {
