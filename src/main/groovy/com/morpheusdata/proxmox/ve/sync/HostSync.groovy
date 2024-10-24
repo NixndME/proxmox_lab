@@ -37,7 +37,7 @@ class HostSync {
         log.debug "Execute HostSync STARTED: ${cloud.id}"
 
         try {
-            def hostListResults = ProxmoxAPIComputeUtil.listProxmoxHypervisorHosts(apiClient, authConfig)
+            def hostListResults = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(apiClient, authConfig)
             log.debug("Host list results: $hostListResults")
 
             if (hostListResults.success) {
