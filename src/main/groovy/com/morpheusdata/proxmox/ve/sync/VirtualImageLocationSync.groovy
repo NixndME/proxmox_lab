@@ -1,7 +1,7 @@
 package com.morpheusdata.proxmox.ve.sync
 
 
-import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.data.DataFilter
 import com.morpheusdata.core.data.DataOrFilter

@@ -31,7 +31,7 @@ import com.morpheusdata.request.ResizeRequest
 import com.morpheusdata.response.PrepareWorkloadResponse
 import com.morpheusdata.response.ProvisionResponse
 import com.morpheusdata.response.ServiceResponse
-import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import com.morpheusdata.proxmox.ve.util.ProxmoxMiscUtil
 import groovy.util.logging.Slf4j
 

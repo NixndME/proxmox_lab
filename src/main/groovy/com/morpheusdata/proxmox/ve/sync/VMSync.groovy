@@ -11,7 +11,7 @@ import com.morpheusdata.model.ComputeServer
 import com.morpheusdata.model.OsType
 import com.morpheusdata.model.projection.ComputeServerIdentityProjection
 import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
-import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import groovy.util.logging.Slf4j
 
 @Slf4j

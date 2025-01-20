@@ -14,7 +14,7 @@ import com.morpheusdata.model.VirtualImage
 import com.morpheusdata.model.VirtualImageLocation
 import com.morpheusdata.model.projection.VirtualImageIdentityProjection
 import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
-import com.morpheusdata.proxmox.ve.util.ProxmoxAPIComputeUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import groovy.util.logging.Slf4j
 import io.reactivex.rxjava3.core.Observable
 
