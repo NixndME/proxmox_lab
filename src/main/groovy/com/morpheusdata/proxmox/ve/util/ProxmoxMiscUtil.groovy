@@ -105,7 +105,32 @@ class ProxmoxMiscUtil {
         }
     }
 
+    static String getNetworkAddress(String ipWithCidr) {
+        // Split the input into IP address and prefix length
+        def (ip, cidr) = ipWithCidr.tokenize('/')
+        int prefixLength = cidr.toInteger()
 
+        // Convert the IP address to a byte array
+        byte[] ipBytes = InetAddress.getByName(ip).address
+
+        // Create the subnet mask as a byte array
+        byte[] subnetMask = new byte[ipBytes.length]
+        for (int i = 0; i < prefixLength; i++) {
+            subnetMask[i / 8] |= (1 << (7 - (i % 8)))
+        }
+
+        // Calculate the network address by applying the subnet mask
+        byte[] networkBytes = new byte[ipBytes.length]
+        for (int i = 0; i < ipBytes.length; i++) {
+            networkBytes[i] = (byte) (ipBytes[i] & subnetMask[i])
+        }
+
+        // Convert the network address back to a string
+        String networkAddress = InetAddress.getByAddress(networkBytes).hostAddress
+
+        // Return the network address with the CIDR prefix
+        return "$networkAddress/$prefixLength"
+    }
 
 
 }

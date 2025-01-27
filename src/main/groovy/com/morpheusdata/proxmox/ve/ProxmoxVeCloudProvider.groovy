@@ -1,6 +1,8 @@
 package com.morpheusdata.proxmox.ve
 
+import com.morpheusdata.proxmox.ve.sync.DatastoreSync
 import com.morpheusdata.proxmox.ve.sync.HostSync
+import com.morpheusdata.proxmox.ve.sync.NetworkSync
 import com.morpheusdata.proxmox.ve.sync.VirtualImageLocationSync
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
@@ -247,7 +249,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				platform: PlatformType.linux,
 				managed: true,
 				provisionTypeCode: 'proxmox-provision-provider',
-				nodeType: 'morpheus-vm-node'
+				nodeType: 'proxmox-node'
 		)
 		serverTypes << new ComputeServerType (
 				name: 'Proxmox VE VM',
@@ -327,7 +329,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 
 			// Setup token get using util class
 			log.debug("Cloud Validation: Attempting authentication to populate access token and csrf token.")
-			def tokenTest = ProxmoxApiComputeUtil.getApiV2Token(username, password, baseUrl)
+			def tokenTest = ProxmoxApiComputeUtil.getApiV2Token([username: username, password: password, apiUrl: baseUrl, v2basePath: ProxmoxVePlugin.V2_BASE_PATH])
 			if (tokenTest.success) {
 				return new ServiceResponse(success: true, msg: 'Cloud connection validated using provided credentials and URL...')
 			} else {
@@ -350,7 +352,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		
 		plugin.getNetworkProvider().initializeProvider(cloudInfo)
 
-		refreshDaily(cloudInfo)
+		refresh(cloudInfo)
 		return ServiceResponse.success()
 	}
 
@@ -370,13 +372,14 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		try {
 			log.debug("Synchronizing hosts, datastores, networks, VMs and virtual images...")
 			(new HostSync(plugin, cloudInfo, client)).execute()
-			//(new DatastoreSync(plugin, cloudInfo, client)).execute()
-			//(new NetworkSync(plugin, cloudInfo, client)).execute()
-			//(new VMSync(plugin, cloudInfo, client, this)).execute()
-			//(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
+			(new DatastoreSync(plugin, cloudInfo, client)).execute()
+			(new NetworkSync(plugin, cloudInfo, client)).execute()
+			(new VMSync(plugin, cloudInfo, client, this)).execute()
+			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
 
 		} catch (e) {
 			log.error("refresh cloud error: ${e}", e)
+			return ServiceResponse.error("refresh cloud error: ${e}")
 		} finally {
 			if(client) {
 				client.shutdownClient()
@@ -393,24 +396,18 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	void refreshDaily(Cloud cloudInfo) {
-		log.debug("Refresh triggered, service url is: " + cloudInfo.serviceUrl)
-		HttpApiClient client = new HttpApiClient()
-		try {
-			log.debug("Synchronizing hosts, datastores, networks, VMs and virtual images...")
-			(new com.morpheusdata.proxmox.ve.sync.HostSync(plugin, cloudInfo, client)).execute()
-			(new com.morpheusdata.proxmox.ve.sync.DatastoreSync(plugin, cloudInfo, client)).execute()
-			(new com.morpheusdata.proxmox.ve.sync.NetworkSync(plugin, cloudInfo, client)).execute()
-			(new VMSync(plugin, cloudInfo, client, this)).execute()
-			////(new VirtualImageSync(plugin, cloudInfo, client, this)).execute()
-			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
 
-		} catch (e) {
-			log.error("refresh cloud error: ${e}", e)
-		} finally {
-			if(client) {
-				client.shutdownClient()
-			}
+		log.debug("Synchronizing hosts, datastores, networks, VMs and virtual images daily...")
+		def refreshResults = refresh(cloudInfo)
+
+		if(refreshResults.success) {
+			cloudInfo.status = Cloud.Status.ok
+		} else {
+			log.debug("Error during daily cloud refresh!")
+			cloudInfo.status = Cloud.Status.offline
 		}
+
+		context.async.cloud.save(cloudInfo).subscribe().dispose()
 	}
 
 	/**

@@ -347,7 +347,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 
 		log.info("Provisioning/cloning: ${workload.getInstance().name} from Image Id: $imageExternalId on node: $nodeId")
 		log.info("Provisioning/cloning: ${workload.getInstance().name} with $server.coresPerSocket cores and $server.maxMemory memory")
-		ServiceResponse rtnClone = ProxmoxAPIComputeUtil.cloneTemplate(client, authConfig, imageExternalId, workload.getInstance().name, nodeId, server.maxCores, server.maxMemory)
+		ServiceResponse rtnClone = ProxmoxApiComputeUtil.cloneTemplate(client, authConfig, imageExternalId, workload.getInstance().name, nodeId, server.maxCores, server.maxMemory)
 		log.debug("VM Clone done. Results: $rtnClone")
 
 		server.internalId = rtnClone.data.vmId
@@ -382,7 +382,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			}
 		}
 
-		ProxmoxAPIComputeUtil.startVM(client, authConfig, nodeId, rtnClone.data.vmId)
+		ProxmoxApiComputeUtil.startVM(client, authConfig, nodeId, rtnClone.data.vmId)
 
 		return new ServiceResponse<ProvisionResponse>(
 				true,
@@ -489,7 +489,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 				ProxmoxMiscUtil.sftpUpload(hvNode.sshHost, 22, hvNode.sshUsername, hvNode.sshPassword, "$imagePathPrefix/$imageFile", remoteImageDir, null)
 
 				//create blank vm template on proxmox
-				ServiceResponse templateResp = ProxmoxAPIComputeUtil.createImageTemplate(client, authConfig, virtualImage.name, hvNode.externalId, 1, 1024L)
+				ServiceResponse templateResp = ProxmoxApiComputeUtil.createImageTemplate(client, authConfig, virtualImage.name, hvNode.externalId, 1, 1024L)
 				log.debug("Create Image response data $templateResp.data")
 				imageExternalId = templateResp.data.templateId
 
@@ -551,7 +551,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			ComputeServer computeServer = workload.server
 			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
 
-			return ProxmoxAPIComputeUtil.stopVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
+			return ProxmoxApiComputeUtil.stopVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
 		} catch (e) {
 			log.error "Error performing stop on VM: ${e}", e
 			return ServiceResponse.error("Error performing stop on VM: ${e}")
@@ -570,7 +570,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			ComputeServer computeServer = workload.server
 			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
 
-			return ProxmoxAPIComputeUtil.startVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
+			return ProxmoxApiComputeUtil.startVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
 		} catch (e) {
 			log.error "Error performing start on VM: ${e}", e
 			return ServiceResponse.error("Error performing start on VM: ${e}")
@@ -605,9 +605,9 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			Cloud cloud = server.cloud
 			Map authConfig = plugin.getAuthConfig(cloud)
 
-			ProxmoxAPIComputeUtil.stopVM(stopClient, authConfig, server.parentServer.name, server.externalId)
+			ProxmoxApiComputeUtil.stopVM(stopClient, authConfig, server.parentServer.name, server.externalId)
 			sleep(5000)
-			return ProxmoxAPIComputeUtil.destroyVM(deleteClient, authConfig, server.parentServer.name, server.externalId)
+			return ProxmoxApiComputeUtil.destroyVM(deleteClient, authConfig, server.parentServer.name, server.externalId)
 		} catch (e) {
 			log.error "Error performing destroy on VM: ${e}", e
 			return ServiceResponse.error("Error performing destroy on VM: ${e}")
@@ -648,7 +648,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			HttpApiClient client = new HttpApiClient()
 			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
 
-			return ProxmoxAPIComputeUtil.stopVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
+			return ProxmoxApiComputeUtil.stopVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
 		} catch (e) {
 			log.error "Error performing stop on VM: ${e}", e
 			return ServiceResponse.error("Error performing stop on VM: ${e}")
@@ -666,7 +666,7 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 			HttpApiClient client = new HttpApiClient()
 			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
 
-			return ProxmoxAPIComputeUtil.startVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
+			return ProxmoxApiComputeUtil.startVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
 		} catch (e) {
 			log.error "Error performing start on VM: ${e}", e
 			return ServiceResponse.error("Error performing start on VM: ${e}")
@@ -771,8 +771,8 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 				log.info("Resizing VM with specs: ${allocationSpecs}")
 				log.info("Resizing vm: ${workload.getInstance().name} with $server.coresPerSocket cores and $server.maxMemory memory")
 				//resizeVMCompute(HttpApiClient client, Map authConfig, String node, String vmId, Long cpu, Long ram)
-				ProxmoxAPIComputeUtil.resizeVMCompute(resizeClient, authConfigMap, computeServer.parentServer.name, computeServer.externalId, requestedCores, requestedMemory)
-				ProxmoxAPIComputeUtil.rebootVM(rebootClient, authConfigMap, computeServer.name, computeServer.externalId)
+				ProxmoxApiComputeUtil.resizeVMCompute(resizeClient, authConfigMap, computeServer.parentServer.name, computeServer.externalId, requestedCores, requestedMemory)
+				ProxmoxApiComputeUtil.rebootVM(rebootClient, authConfigMap, computeServer.name, computeServer.externalId)
 			}
 		} catch (e) {
 			log.error("Unable to resize workload: ${e.message}", e)

@@ -39,7 +39,7 @@ class VMSync {
     def execute() {
         try {
             log.debug "Execute VMSync STARTED: ${cloud.id}"
-            def cloudItems = ProxmoxAPIComputeUtil.listVMs(apiClient, authConfig).data
+            def cloudItems = ProxmoxApiComputeUtil.listVMs(apiClient, authConfig).data
             def domainRecords = context.async.computeServer.listIdentityProjections(cloud.id, null).filter {
                 it.computeServerTypeCode == 'proxmox-qemu-vm-unmanaged'
             }

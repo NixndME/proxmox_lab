@@ -46,7 +46,7 @@ class VirtualImageLocationSync {
     def execute() {
         try {
             log.info "Execute VirtualImageLocationSync STARTED: ${cloud.id}"
-            def cloudItems = ProxmoxAPIComputeUtil.listTemplates(apiClient, authConfig).data
+            def cloudItems = ProxmoxApiComputeUtil.listTemplates(apiClient, authConfig).data
             log.debug("Proxmox templates found: $cloudItems")
 
             Observable domainRecords = context.async.virtualImage.location.listIdentityProjections(new DataQuery().withFilters([

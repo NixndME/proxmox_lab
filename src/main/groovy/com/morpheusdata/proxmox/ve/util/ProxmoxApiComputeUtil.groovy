@@ -10,7 +10,7 @@ import groovy.json.JsonSlurper
 @Slf4j
 class ProxmoxApiComputeUtil {
 
-    static final String API_BASE_PATH = "/api2/json"
+    //static final String API_BASE_PATH = "/api2/json"
     static final Long API_CHECK_WAIT_INTERVAL = 2000
 
 
@@ -63,7 +63,7 @@ class ProxmoxApiComputeUtil {
         Long ramValue = ram / 1024 / 1024
 
         try {
-            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def tokenCfg = getApiV2Token(authConfig).data
             def opts = [
                     headers  : [
                             'Content-Type'       : 'application/json',
@@ -129,7 +129,7 @@ class ProxmoxApiComputeUtil {
     static actionVMStatus(HttpApiClient client, Map authConfig, String nodeId, String vmId, String action) {
 
         try {
-            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def tokenCfg = getApiV2Token(authConfig).data
             def opts = [
                     headers  : [
                             'Content-Type'       : 'application/json',
@@ -164,7 +164,7 @@ class ProxmoxApiComputeUtil {
     static destroyVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
         log.debug("destroyVM")
         try {
-            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def tokenCfg = getApiV2Token(authConfig).data
             def opts = [
                     headers  : [
                             'Content-Type'       : 'application/json',
@@ -205,7 +205,7 @@ class ProxmoxApiComputeUtil {
         log.debug("Next VM Id is: $nextId")
 
         try {
-            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def tokenCfg = getApiV2Token(authConfig).data
             rtn.data = []
             def opts = [
                     headers  : [
@@ -256,7 +256,7 @@ class ProxmoxApiComputeUtil {
         log.debug("waitForCloneToComplete: $templateId")
 
         try {
-            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def tokenCfg = getApiV2Token(authConfig).data
             def opts = [
                     headers: [
                             'Content-Type': 'application/json',
@@ -311,7 +311,7 @@ class ProxmoxApiComputeUtil {
         log.debug("Next VM Id is: $nextId")
 
         try {
-            def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+            def tokenCfg = getApiV2Token(authConfig).data
             rtn.data = []
             def opts = [
                     headers: [
@@ -376,27 +376,36 @@ class ProxmoxApiComputeUtil {
     static ServiceResponse listProxmoxDatastores(HttpApiClient client, Map authConfig) {
         log.debug("listProxmoxDatastores...")
 
+        var allowedDatastores = ["rbd", "cifs", "zfspool", "nfs", "lvmthin", "lvm"]
+
         ServiceResponse datastoreResults = callListApiV2(client, "storage", authConfig)
-        List<Map> datastores = datastoreResults.data
+        List<Map> validDatastores = []
         String queryNode = ""
         String randomNode = null
-        for (ds in datastores) {
-            if (ds.containsKey("nodes")) { //some pools don't belong to any node, but api path needs node for status details
-                queryNode = ((String) ds.nodes).split(",")[0]
-            } else {
-                if (!randomNode) {
-                    randomNode = listProxmoxHypervisorHosts(client, authConfig).data.get(0).node
+        for (ds in datastoreResults.data) {
+            if (allowedDatastores.contains(ds.type)) {
+                if (ds.containsKey("nodes")) {
+                    //some pools don't belong to any node, but api path needs node for status details
+                    queryNode = ((String) ds.nodes).split(",")[0]
+                } else {
+                    if (!randomNode) {
+                        randomNode = listProxmoxHypervisorHosts(client, authConfig).data.get(0).node
+                    }
+                    queryNode = randomNode
                 }
-                queryNode = randomNode
-            }
 
-            Map dsInfo = callListApiV2(client, "nodes/${queryNode}/storage/${ds.storage}/status", authConfig).data
-            ds.total = dsInfo.total
-            ds.avail = dsInfo.avail
-            ds.used = dsInfo.used
-            ds.enabled = dsInfo.enabled
+                Map dsInfo = callListApiV2(client, "nodes/${queryNode}/storage/${ds.storage}/status", authConfig).data
+                ds.total = dsInfo.total
+                ds.avail = dsInfo.avail
+                ds.used = dsInfo.used
+                ds.enabled = dsInfo.enabled
+
+                validDatastores += ds
+            } else {
+                log.warn("Storage ${ds} ignored...")
+            }
         }
-        datastoreResults.data = datastores
+        datastoreResults.data = validDatastores
         return datastoreResults
     }
 
@@ -405,13 +414,19 @@ class ProxmoxApiComputeUtil {
         log.debug("listProxmoxNetworks...")
 
         Collection<Map> networks = []
+        Set<String> ifaces = []
         ServiceResponse hosts = listProxmoxHypervisorHosts(client, authConfig)
 
         hosts.data.each {
             ServiceResponse hostNetworks = callListApiV2(client, "nodes/${it.node}/network", authConfig)
             hostNetworks.data.each { Map network ->
-                if (network?.type == 'bridge') {
+                if (network?.type == 'bridge' && !ifaces.contains(network?.iface)) {
+                    network.networkAddress = ""
+                    if (network.containsKey("cidr") && network['cidr']) {
+                        network.networkAddress = ProxmoxMiscUtil.getNetworkAddress(network.cidr)
+                    }
                     networks << (network)
+                    ifaces << network.iface
                 }
             }
         }
@@ -480,7 +495,7 @@ class ProxmoxApiComputeUtil {
     private static ServiceResponse callListApiV2(HttpApiClient client, String path, Map authConfig) {
         log.debug("callListApiV2: path: ${path}")
 
-        def tokenCfg = getApiV2Token(authConfig.username, authConfig.password, authConfig.apiUrl).data
+        def tokenCfg = getApiV2Token(authConfig).data
         def rtn = new ServiceResponse(success: false)
         try {
             rtn.data = []
@@ -514,7 +529,47 @@ class ProxmoxApiComputeUtil {
     }
 
 
-    private static ServiceResponse getApiV2Token(String uid, String pwd, String baseUrl) {
+    private static ServiceResponse getApiV2Token(Map authConfig) {
+        def path = "access/ticket"
+        log.debug("getApiV2Token: path: ${path}")
+        HttpApiClient client = new HttpApiClient()
+
+        def rtn = new ServiceResponse(success: false)
+        try {
+
+            def encUid = URLEncoder.encode((String) authConfig.username, "UTF-8")
+            def encPwd = URLEncoder.encode((String) authConfig.password, "UTF-8")
+            def bodyStr = "username=" + "$encUid" + "&password=$encPwd"
+
+            HttpApiClient.RequestOptions opts = new HttpApiClient.RequestOptions(
+                    headers: ['Content-Type':'application/x-www-form-urlencoded'],
+                    body: bodyStr,
+                    contentType: ContentType.APPLICATION_FORM_URLENCODED,
+                    ignoreSSL: true
+            )
+            def results = client.callJsonApi(authConfig.apiUrl,"${authConfig.v2basePath}/${path}", opts, 'POST')
+
+            log.debug("getApiV2Token API request results: ${results.toMap()}")
+            if(results?.success && !results?.hasErrors()) {
+                rtn.success = true
+                def tokenData = results.data.data
+                rtn.data = [csrfToken: tokenData.CSRFPreventionToken, token: tokenData.ticket]
+
+            } else {
+                rtn.success = false
+                rtn.msg = "Error retrieving token: $results.data"
+                log.error("Error retrieving token: $results.data")
+            }
+            return rtn
+        } catch(e) {
+            log.error "Error in getApiV2Token: ${e}", e
+            rtn.msg = "Error in getApiV2Token: ${e}"
+            rtn.success = false
+        }
+        return rtn
+    }
+
+/*    private static ServiceResponse getApiV2Token(String uid, String pwd, String baseUrl) {
         def path = "access/ticket"
         log.debug("getApiV2Token: path: ${path}")
         HttpApiClient client = new HttpApiClient()
@@ -553,4 +608,5 @@ class ProxmoxApiComputeUtil {
         }
         return rtn
     }
+    */
 }

@@ -37,7 +37,7 @@ class DatastoreSync {
     def execute() {
         log.debug "Datastore Sync STARTED: ${cloud.id}"
 
-        def datastoreResults = ProxmoxAPIComputeUtil.listProxmoxDatastores(apiClient, authConfig)
+        def datastoreResults = ProxmoxApiComputeUtil.listProxmoxDatastores(apiClient, authConfig)
         log.debug("Datastore list results: $datastoreResults")
         if (datastoreResults.success) {
             def cloudItems = datastoreResults?.data

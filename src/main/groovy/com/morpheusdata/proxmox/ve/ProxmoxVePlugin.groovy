@@ -24,6 +24,7 @@ import groovy.util.logging.Slf4j
 class ProxmoxVePlugin extends Plugin {
     
     private String networkProviderCode
+    public static String V2_BASE_PATH = '/api2/json'
 
     @Override
     String getCode() {
@@ -51,7 +52,7 @@ class ProxmoxVePlugin extends Plugin {
         log.debug "getAuthConfig: ${cloud}"
         def rtn = [
                 apiUrl    : cloud.serviceUrl,
-                v2basePath: '/api2/json',
+                v2basePath: V2_BASE_PATH,
                 username  : null,
                 password  : null
         ]
