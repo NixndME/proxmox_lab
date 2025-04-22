@@ -418,21 +418,22 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 	private ComputeServer getHypervisorHostByExternalId(Long cloudId, String externalId) {
 		log.info("Fetch Hypervisor Host by Cloud/External Id: $cloudId/$externalId")
 
-		ComputeServer hvNode
-		def hostIdentityProjection = context.async.computeServer.listIdentityProjections(cloudId, null).filter {
-			ComputeServerIdentityProjection projection ->
-				if (projection.externalId == externalId) {
-					return true
-				}
-				false
-		}.subscribe {
-			log.info("Found Host IdentityProjection: $it.id")
-			List<Long> idList = [it.id]
-			hvNode = context.async.computeServer.listById(idList).blockingFirst()
+		try {
+			// Use blockingFirst() to wait for the first match instead of using subscribe()
+			ComputeServerIdentityProjection projection = context.async.computeServer.listIdentityProjections(cloudId, null)
+				.filter { ComputeServerIdentityProjection proj -> proj.externalId == externalId }
+				.blockingFirst()
+			
+			log.info("Found Host IdentityProjection: $projection.id")
+			List<Long> idList = [projection.id]
+			ComputeServer hvNode = context.async.computeServer.listById(idList).blockingFirst()
 			log.debug("Returning hvHost: $hvNode.sshHost")
+			
+			return hvNode
+		} catch (Exception e) {
+			log.error("Error finding hypervisor host by external ID: $externalId in cloud: $cloudId", e)
+			return null
 		}
-
-		return hvNode
 	}
 
 
