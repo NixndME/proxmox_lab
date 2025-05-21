@@ -417,12 +417,17 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	ServiceResponse deleteCloud(Cloud cloudInfo) {
-
 		log.debug("Cleanup (deleteCloud) triggered, service url is: " + cloudInfo.serviceUrl)
 		HttpApiClient client = new HttpApiClient()
-
-		(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).clean()
-		return ServiceResponse.success()
+		try {
+			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).clean()
+			return ServiceResponse.success()
+		} catch (e) {
+			log.error("Error during deleteCloud for cloud ${cloudInfo.id} (${cloudInfo.name}): ${e.message}", e)
+			return ServiceResponse.error("Error during cloud cleanup: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
 	}
 
 	/**
@@ -497,7 +502,42 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	ServiceResponse startServer(ComputeServer computeServer) {
-		return ServiceResponse.success()
+		HttpApiClient client = new HttpApiClient()
+		try {
+			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+			String vmId = computeServer.externalId
+			String nodeName = computeServer.parentServer?.name
+
+			if (!vmId) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${computeServer.name}")
+			}
+			if (!nodeName) {
+				// Attempt to find node if parentServer is not set (e.g. for unmanaged VMs not fully synced)
+				log.warn("parentServer.name is null for ComputeServer ${computeServer.id} (${computeServer.name}). Attempting to find node for VM ID ${vmId}.")
+				def vmsList = ProxmoxApiComputeUtil.listVMs(client, authConfig)?.data
+				def foundVm = vmsList?.find { it.vmid == vmId }
+				if (foundVm?.node) {
+					nodeName = foundVm.node
+					log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+				} else {
+					return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${computeServer.name} and could not find it via API.")
+				}
+			}
+
+			log.info("Attempting to start VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.startVM(client, authConfig, nodeName, vmId)
+			if (response.success) {
+				log.info("Successfully started VM ${vmId} on node ${nodeName}")
+			} else {
+				log.error("Failed to start VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+		} catch (e) {
+			log.error("Error performing start on VM ${computeServer.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error performing start on VM ${computeServer.externalId}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
 	}
 
 	/**
@@ -508,7 +548,42 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	ServiceResponse stopServer(ComputeServer computeServer) {
-		return ServiceResponse.success()
+		HttpApiClient client = new HttpApiClient()
+		try {
+			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+			String vmId = computeServer.externalId
+			String nodeName = computeServer.parentServer?.name
+
+			if (!vmId) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${computeServer.name}")
+			}
+			if (!nodeName) {
+				log.warn("parentServer.name is null for ComputeServer ${computeServer.id} (${computeServer.name}). Attempting to find node for VM ID ${vmId}.")
+				def vmsList = ProxmoxApiComputeUtil.listVMs(client, authConfig)?.data
+				def foundVm = vmsList?.find { it.vmid == vmId }
+				if (foundVm?.node) {
+					nodeName = foundVm.node
+					log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+				} else {
+					return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${computeServer.name} and could not find it via API.")
+				}
+			}
+
+			log.info("Attempting to gracefully shutdown VM ${vmId} on node ${nodeName}")
+			// Using shutdownVM for graceful shutdown
+			ServiceResponse response = ProxmoxApiComputeUtil.shutdownVM(client, authConfig, nodeName, vmId)
+			if (response.success) {
+				log.info("Successfully initiated shutdown for VM ${vmId} on node ${nodeName}")
+			} else {
+				log.error("Failed to shutdown VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+		} catch (e) {
+			log.error("Error performing stop (shutdown) on VM ${computeServer.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error performing stop (shutdown) on VM ${computeServer.externalId}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
 	}
 
 	/**
@@ -518,7 +593,51 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 */
 	@Override
 	ServiceResponse deleteServer(ComputeServer computeServer) {
-		return ServiceResponse.success()
+		HttpApiClient client = new HttpApiClient()
+		try {
+			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+			String vmId = computeServer.externalId
+			String nodeName = computeServer.parentServer?.name
+
+			if (!vmId) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${computeServer.name}")
+			}
+			if (!nodeName) {
+				log.warn("parentServer.name is null for ComputeServer ${computeServer.id} (${computeServer.name}). Attempting to find node for VM ID ${vmId}.")
+				def vmsList = ProxmoxApiComputeUtil.listVMs(client, authConfig)?.data
+				def foundVm = vmsList?.find { it.vmid == vmId }
+				if (foundVm?.node) {
+					nodeName = foundVm.node
+					log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+				} else {
+					return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${computeServer.name} and could not find it via API.")
+				}
+			}
+
+			log.info("Attempting to stop VM ${vmId} on node ${nodeName} before deletion.")
+			ServiceResponse stopResponse = ProxmoxApiComputeUtil.stopVM(client, authConfig, nodeName, vmId)
+			if (stopResponse.success) {
+				log.info("Successfully stopped VM ${vmId} on node ${nodeName}. Waiting for 5 seconds before deletion.")
+				sleep(5000) // Wait for VM to stop, similar to ProxmoxVeProvisionProvider.removeWorkload
+			} else {
+				// Log the error but proceed with deletion attempt if stop fails, as VM might already be stopped or Proxmox might handle it.
+				log.warn("Failed to stop VM ${vmId} on node ${nodeName} before deletion: ${stopResponse.msg}. Proceeding with deletion attempt.")
+			}
+
+			log.info("Attempting to delete VM ${vmId} on node ${nodeName}")
+			ServiceResponse deleteResponse = ProxmoxApiComputeUtil.destroyVM(client, authConfig, nodeName, vmId)
+			if (deleteResponse.success) {
+				log.info("Successfully deleted VM ${vmId} on node ${nodeName}")
+			} else {
+				log.error("Failed to delete VM ${vmId} on node ${nodeName}: ${deleteResponse.msg}")
+			}
+			return deleteResponse
+		} catch (e) {
+			log.error("Error performing delete on VM ${computeServer.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error performing delete on VM ${computeServer.externalId}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
 	}
 
 	/**
@@ -579,5 +698,257 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	@Override
 	String getName() {
 		return 'Proxmox VE'
+	}
+
+	/**
+	 * Adds a new disk to the specified ComputeServer.
+	 * This method is intended to be called to provision a new disk directly on the Proxmox VM.
+	 *
+	 * @param server The ComputeServer (VM) to add the disk to.
+	 * @param storageName The name of the Proxmox storage where the new disk will be created (e.g., 'local-lvm').
+	 * @param diskSizeGB The size of the new disk in Gigabytes.
+	 * @param diskType The Proxmox disk type (e.g., 'scsi', 'sata', 'ide', 'virtio'). This determines the controller/bus.
+	 * @return ServiceResponse indicating success or failure, and potentially a taskId from Proxmox.
+	 */
+	ServiceResponse addDiskToServer(ComputeServer server, String storageName, Integer diskSizeGB, String diskType) {
+		log.info("ProxmoxVeCloudProvider.addDiskToServer called for server: ${server?.id} (${server?.name}), storage: ${storageName}, size: ${diskSizeGB}GB, type: ${diskType}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			// Basic input validation
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (storageName == null || storageName.isEmpty()) {
+				return ServiceResponse.error("Storage name cannot be empty.")
+			}
+			if (diskSizeGB == null || diskSizeGB <= 0) {
+				return ServiceResponse.error("Disk size must be a positive integer.")
+			}
+			if (diskType == null || diskType.isEmpty()) {
+				return ServiceResponse.error("Disk type (bus) cannot be empty.")
+			}
+			List<String> supportedDiskTypes = ['scsi', 'sata', 'ide', 'virtio']
+			if (!supportedDiskTypes.contains(diskType.toLowerCase())) {
+				return ServiceResponse.error("Unsupported diskType: ${diskType}. Must be one of ${supportedDiskTypes.join(', ')}.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			// Fallback for nodeName if parentServer is not set
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				// Use a temporary client for this internal lookup if the main client is used later for the actual operation
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			log.info("Attempting to add disk to VM ${vmId} on node ${nodeName}: Storage=${storageName}, Size=${diskSizeGB}GB, Type=${diskType}")
+			ServiceResponse response = ProxmoxApiComputeUtil.addVMDisk(client, authConfig, nodeName, vmId, storageName, diskSizeGB, diskType)
+
+			if (response.success) {
+				log.info("Successfully initiated add disk for VM ${vmId} on node ${nodeName}. Response: ${response.msg}")
+			} else {
+				log.error("Failed to add disk to VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in addDiskToServer for VM ${server?.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error adding disk to server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	/**
+	 * Adds a new network interface to the specified ComputeServer (VM).
+	 *
+	 * @param server The ComputeServer (VM) to add the network interface to.
+	 * @param bridgeName The name of the Proxmox bridge (e.g., 'vmbr0').
+	 * @param model The network card model (e.g., 'e1000', 'virtio', 'rtl8139').
+	 * @param vlanTag (Optional) The VLAN ID. If null or empty, it's omitted.
+	 * @param firewallEnabled (Optional) Boolean to enable/disable Proxmox firewall on this interface. Defaults to false if null.
+	 * @return ServiceResponse indicating success or failure, and potentially a taskId from Proxmox.
+	 */
+	ServiceResponse addNetworkInterfaceToServer(ComputeServer server, String bridgeName, String model, String vlanTag, Boolean firewallEnabled) {
+		log.info("ProxmoxVeCloudProvider.addNetworkInterfaceToServer called for server: ${server?.id} (${server?.name}), bridge: ${bridgeName}, model: ${model}, vlan: ${vlanTag}, firewall: ${firewallEnabled}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			// Basic input validation
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (bridgeName == null || bridgeName.trim().isEmpty()) {
+				return ServiceResponse.error("Bridge name cannot be empty.")
+			}
+			if (model == null || model.trim().isEmpty()) {
+				return ServiceResponse.error("Network card model cannot be empty.")
+			}
+			// Proxmox supports various models, e.g., e1000, virtio, rtl8139, vmxnet3. Add more if needed or rely on Proxmox to validate.
+			List<String> knownModels = ['e1000', 'e1000-82545em', 'virtio', 'rtl8139', 'vmxnet3', 'i82551', 'i82557b', 'i82559er']
+			if (!knownModels.contains(model.toLowerCase())) {
+				log.warn("Unknown network model specified: ${model}. Proxmox will ultimately validate this.")
+			}
+
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			// Fallback for nodeName if parentServer is not set
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			// Default firewallEnabled to false if null
+			Boolean effectiveFirewallEnabled = firewallEnabled ?: false
+
+			log.info("Attempting to add NIC to VM ${vmId} on node ${nodeName}: Bridge=${bridgeName}, Model=${model}, VLAN=${vlanTag}, Firewall=${effectiveFirewallEnabled}")
+			ServiceResponse response = ProxmoxApiComputeUtil.addVMNetworkInterface(client, authConfig, nodeName, vmId, bridgeName.trim(), model.trim(), vlanTag, effectiveFirewallEnabled)
+
+			if (response.success) {
+				log.info("Successfully initiated add NIC for VM ${vmId} on node ${nodeName}. Response: ${response.msg}")
+			} else {
+				log.error("Failed to add NIC to VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in addNetworkInterfaceToServer for VM ${server?.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error adding network interface to server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	/**
+	 * Gets the console connection details for the specified ComputeServer (VM).
+	 *
+	 * @param server The ComputeServer (VM) for which to get console details.
+	 * @param opts Additional options map (may specify console type preference in the future).
+	 * @return ServiceResponse containing a map with console details (e.g., url, type, ticket).
+	 */
+	ServiceResponse getVmConsoleDetails(ComputeServer server, Map opts) {
+		log.info("ProxmoxVeCloudProvider.getVmConsoleDetails called for server: ${server?.id} (${server?.name}) with opts: ${opts}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			// Basic input validation
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			// Fallback for nodeName if parentServer is not set
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			// Determine console type - default to VNC for now
+			// String consoleType = opts?.consoleType ?: server.guestConsoleType?.toString() ?: 'vnc'
+			// For this initial implementation, we are focusing on VNC.
+			String consoleType = 'vnc' 
+			log.info("Requesting console of type '${consoleType}' for VM ${vmId} on node ${nodeName}")
+
+			ServiceResponse consoleApiResponse = ProxmoxApiComputeUtil.requestVMConsole(client, authConfig, nodeName, vmId, consoleType)
+
+			if (!consoleApiResponse.success) {
+				log.error("Failed to get console details from Proxmox API: ${consoleApiResponse.msg}")
+				return consoleApiResponse // Propagate the error
+			}
+
+			Map consoleData = consoleApiResponse.data
+			if (consoleData == null || !consoleData.ticket || !consoleData.proxmoxHost || !consoleData.proxmoxPort) {
+				log.error("Proxmox API response for console is missing required data (ticket, proxmoxHost, proxmoxPort). Data: ${consoleData}")
+				return ServiceResponse.error("Proxmox API response for console is missing required data.")
+			}
+
+			// Construct the noVNC URL
+			// Example: https://{proxmoxHost}:{proxmoxUIPort}/?console=qemu&novnc=1&vmid={vmid}&node={nodeName}&vncticket={ticket}
+			// The proxmoxPort here is the main Proxmox web UI port (e.g., 8006)
+			String scheme = new URL(authConfig.apiUrl).getProtocol()
+			String consoleUrl = "${scheme}://${consoleData.proxmoxHost}:${consoleData.proxmoxPort}/?console=qemu&novnc=1&vmid=${vmId}&node=${nodeName}&vncticket=${consoleData.ticket}"
+			
+			Map morpheusConsoleDetails = [
+				url: consoleUrl,
+				type: consoleType, // 'vnc'
+				ticket: consoleData.ticket,
+				username: consoleData.user, // Proxmox vncproxy provides 'user'
+				// password: consoleData.ticket, // Often ticket is used as password for noVNC
+				// port: consoleData.port, // This is the websocket port, not usually needed in the final URL for noVNC via Proxmox UI
+				// host: consoleData.proxmoxHost // Redundant if in URL
+			]
+
+			log.info("Successfully prepared console details for VM ${vmId}: ${morpheusConsoleDetails}")
+			return ServiceResponse.success("Console details retrieved.", morpheusConsoleDetails)
+
+		} catch (e) {
+			log.error("Error in getVmConsoleDetails for VM ${server?.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error getting console details for server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
 	}
 }

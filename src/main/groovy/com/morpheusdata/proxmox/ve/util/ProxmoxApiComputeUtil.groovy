@@ -453,30 +453,239 @@ class ProxmoxApiComputeUtil {
 
 
     static ServiceResponse listVMs(HttpApiClient client, Map authConfig) {
-        log.debug("API Util listVMs")
+        log.debug("API Util listVMs - Enhanced")
         def vms = []
-        def qemuVMs = callListApiV2(client, "cluster/resources", authConfig)
-        qemuVMs.data.each { Map vm ->
-            if (vm?.template == 0 && vm?.type == "qemu") {
-                def vmAgentInfo = callListApiV2(client, "nodes/$vm.node/qemu/$vm.vmid/agent/network-get-interfaces", authConfig)
-                vm.ip = "0.0.0.0"
-                if (vmAgentInfo.success) {
-                    def results = vmAgentInfo.data?.result
-                    results.each {
-                        if (it."ip-address-type" == "ipv4" && it."ip-address" != "127.0.0.1" && vm.ip == "0.0.0.0") {
-                            vm.ip = it."ip-address"
+        // The 'client' parameter passed to listVMs is from VMSync, which is instantiated in ProxmoxVeCloudProvider.refresh.
+        // That client in refresh() IS closed. So the client param here is managed by the caller.
+        // The internalClient here is for calls within listVMs itself for per-VM details.
+        HttpApiClient internalClient = new HttpApiClient()
+        try {
+            // The initial call to "cluster/resources" should use the client passed to listVMs (from VMSync).
+            def qemuVMsResponse = callListApiV2(client, "cluster/resources", authConfig)
+            if (!qemuVMsResponse.success) {
+                log.error("Failed to list cluster resources: ${qemuVMsResponse.msg}")
+                return qemuVMsResponse
+            }
+
+            qemuVMsResponse.data.each { Map vm ->
+                if (vm?.template == 0 && vm?.type == "qemu" && vm.node != null && vm.vmid != null) {
+                    log.debug("Enhanced listVMs - Processing VM: vmid=${vm.vmid}, node=${vm.node}, name=${vm.name ?: 'N/A'}") // More detailed log
+                    // Initialize detailed structures
+                    vm.disks = []
+                    vm.networkInterfaces = []
+                    vm.qemuAgent = [status: 'unknown'] // Default status
+
+                    // 1. Get full VM config for disks and network interfaces
+                    // These per-VM calls should use the internalClient
+                    ServiceResponse vmConfigResponse = callListApiV2(internalClient, "nodes/${vm.node}/qemu/${vm.vmid}/config", authConfig)
+                    if (vmConfigResponse.success && vmConfigResponse.data) {
+                        Map configData = vmConfigResponse.data
+                        vm.maxCores = (configData.sockets ?: 1).toInteger() * (configData.cores ?: 1).toInteger()
+                        vm.coresPerSocket = (configData.cores ?: 1).toInteger()
+
+                        // Parse Disks
+                        configData.each { key, value ->
+                            if (key ==~ /(scsi|ide|sata|virtio)\d+/) {
+                                Map diskDetails = parseDiskEntry(key, value.toString())
+                                if (diskDetails) vm.disks << diskDetails
+                            }
+                            // Parse Network Interfaces
+                            if (key ==~ /net\d+/) {
+                                Map nicDetails = parseNetworkInterfaceEntry(key, value.toString())
+                                if (nicDetails) vm.networkInterfaces << nicDetails
+                            }
+                        }
+                        // Consolidate memory from config
+                        vm.maxmem = configData.memory ? (configData.memory.toLong() * 1024L * 1024L) : vm.maxmem // memory is in MB
+                    } else {
+                        log.warn("Could not retrieve config for VM ${vm.vmid} on node ${vm.node}: ${vmConfigResponse.msg}")
+                        // Still attempt to get CPU info from main vm resource if config fails
+                        if(vm.maxcpu) { // maxcpu from cluster/resources is vCPUs
+                             vm.maxCores = vm.maxcpu.toInteger()
+                        }
+                         vm.coresPerSocket = 1 // Default if not found
+                    }
+                    
+                    // 2. Get QEMU Agent Status and Info (including IPs from agent)
+                    vm.ip = "0.0.0.0" // Default IP
+                    // These per-VM calls should use the internalClient
+                    ServiceResponse agentOsInfoResponse = callListApiV2(internalClient, "nodes/${vm.node}/qemu/${vm.vmid}/agent/get-osinfo", authConfig)
+                    if (agentOsInfoResponse.success && agentOsInfoResponse.data?.result) {
+                        vm.qemuAgent = [status: 'running', data: agentOsInfoResponse.data.result]
+                        // Try to get IPs from agent if available - this is often more reliable
+                        ServiceResponse agentNetworkInfo = callListApiV2(internalClient, "nodes/${vm.node}/qemu/${vm.vmid}/agent/network-get-interfaces", authConfig)
+                        if (agentNetworkInfo.success && agentNetworkInfo.data?.result) {
+                            def agentNics = agentNetworkInfo.data.result
+                            vm.qemuAgent.networkInterfaces = agentNics // Store raw agent NIC data
+                            def primaryIp = findPrimaryIpFromAgentNics(agentNics)
+                            if (primaryIp) vm.ip = primaryIp
+                        }
+                    } else {
+                        // Handle common error patterns for agent not running or not installed
+                        String errorContent = agentOsInfoResponse.content?.toLowerCase() ?: ""
+                        if (agentOsInfoResponse.errorCode == 500 && (errorContent.contains("qemu agent not running") || errorContent.contains("guest agent is not running"))) {
+                             vm.qemuAgent = [status: 'not_running']
+                        } else if (agentOsInfoResponse.errorCode == 500 && errorContent.contains("disabled")) {
+                             vm.qemuAgent = [status: 'disabled']
+                        } else {
+                             vm.qemuAgent = [status: 'error', details: agentOsInfoResponse.msg ?: agentOsInfoResponse.content]
+                        }
+                        log.debug("QEMU agent for VM ${vm.vmid} not responsive or error: ${vm.qemuAgent.status} - ${vm.qemuAgent.details ?: ''}")
+                        // Fallback: if agent failed, use the first IP from parsed netX interfaces if available
+                        if (vm.ip == "0.0.0.0" && vm.networkInterfaces) {
+                            vm.networkInterfaces.find { nic ->
+                                // Proxmox config for netX does not directly contain IP. This requires agent.
+                                // The initial cluster/resources call might have some IP, but it's unreliable.
+                                // For now, without agent, IP remains 0.0.0.0 unless cluster/resources provided something better initially.
+                                // This part of IP detection might need further refinement if agent is consistently unavailable.
+                            }
                         }
                     }
+                     // Ensure essential fields from cluster/resources are preserved if not overwritten by more detailed calls
+                    vm.name = vm.name ?: "Unknown VM ${vm.vmid}"
+                    vm.status = vm.status ?: "unknown" // 'running', 'stopped' from cluster/resources
+                    vm.maxmem = vm.maxmem ?: 0L // From cluster/resources (bytes)
+                    vm.maxdisk = vm.maxdisk ?: 0L // From cluster/resources (bytes) - this will be replaced by sum of actual disks
+
+                    vms << vm
                 }
-                def vmCPUInfo = callListApiV2(client, "nodes/$vm.node/qemu/$vm.vmid/config", authConfig)
-                vm.maxCores = (vmCPUInfo?.data?.data?.sockets?.toInteger() ?: 0) * (vmCPUInfo?.data?.data?.cores?.toInteger() ?: 0)
-                vm.coresPerSocket = vmCPUInfo?.data?.data?.cores?.toInteger() ?: 0
-                vms << vm
             }
+        } catch (Exception e) {
+            log.error("Error in enhanced listVMs: ${e.message}", e)
+            return ServiceResponse.error("Error fetching detailed VM list: ${e.message}")
+        } finally {
+            internalClient?.shutdownClient()
         }
         return new ServiceResponse(success: true, data: vms)
     }
+
+    private static Map parseDiskEntry(String key, String value) {
+        // Example: virtio0: local-lvm:vm-102-disk-0,size=32G,iothread=1
+        // Example: scsi0: local:iso/proxmox-mailgateway_7.1-1.iso,media=cdrom,size=1020184K
+        try {
+            def parts = value.split(',')
+            def storagePart = parts[0]
+            def diskDetails = [name: key, type: key.replaceAll(/\d+$/, '')]
+
+            def storageMatcher = (storagePart =~ /([^:]+):(.*)/)
+            if (storageMatcher.find()) {
+                diskDetails.storage = storageMatcher.group(1)
+                diskDetails.file = storagePart // Full path like local-lvm:vm-102-disk-0 or local:iso/file.iso
+            } else {
+                diskDetails.storage = storagePart // Could be just storage name for unused drives or special cases
+                diskDetails.file = storagePart
+            }
+            
+            parts[1..-1].each { param ->
+                def pair = param.split('=')
+                if (pair.length == 2) {
+                    switch (pair[0].toLowerCase()) {
+                        case "size":
+                            diskDetails.sizeRaw = pair[1]
+                            diskDetails.sizeBytes = parseSizeToBytes(pair[1])
+                            break
+                        case "format":
+                            diskDetails.format = pair[1]
+                            break
+                        case "media":
+                            diskDetails.media = pair[1] // cdrom, disk
+                            break
+                        // Add other params like iothread, ssd, etc. if needed
+                    }
+                }
+            }
+            // Default format if not specified (e.g. for CDROM)
+            if (!diskDetails.format && diskDetails.media == 'disk') diskDetails.format = 'raw' // Or 'qcow2' - Proxmox default might vary
+            if (diskDetails.media == 'cdrom') diskDetails.isCdRom = true
+
+
+            return diskDetails
+        } catch (Exception e) {
+            log.error("Failed to parse disk entry '${key}: ${value}': ${e.message}")
+            return null
+        }
+    }
+
+    private static Map parseNetworkInterfaceEntry(String key, String value) {
+        // Example: net0: virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,tag=100,firewall=1
+        try {
+            def nicDetails = [name: key]
+            def parts = value.split(',')
+            
+            def modelMacPart = parts[0] // virtio=AA:BB:CC:DD:EE:FF or e1000=...
+            def modelMacMatcher = (modelMacPart =~ /([^=]+)=([^,]+)/)
+            if (modelMacMatcher.find()) {
+                nicDetails.model = modelMacMatcher.group(1)
+                nicDetails.macAddress = modelMacMatcher.group(2)
+            } else {
+                 // Fallback for configurations like 'net0: vmbr0' (though rare for QEMU, more for CTs or specific setups)
+                nicDetails.model = modelMacPart // Or could be bridge name directly
+            }
+
+            parts[1..-1].each { param ->
+                def pair = param.split('=')
+                if (pair.length == 2) {
+                    switch (pair[0].toLowerCase()) {
+                        case "bridge":
+                            nicDetails.bridge = pair[1]
+                            break
+                        case "tag":
+                            nicDetails.vlanTag = pair[1]
+                            break
+                        case "firewall":
+                            nicDetails.firewall = pair[1] == "1"
+                            break
+                        // rate, link_down, etc.
+                    }
+                } else if (nicDetails.model && !nicDetails.bridge && parts.length == 1) { 
+                    // Handle case like net0: bridge_name (no model explicitly, PVE defaults it)
+                    // This is less common with explicit model=MAC, but as a fallback.
+                    nicDetails.bridge = pair[0]
+                }
+            }
+            return nicDetails
+        } catch (Exception e) {
+            log.error("Failed to parse NIC entry '${key}: ${value}': ${e.message}")
+            return null
+        }
+    }
+
+    static long parseSizeToBytes(String sizeStr) {
+        if (sizeStr == null || sizeStr.isEmpty()) return 0L
+        def matcher = sizeStr =~ /(\d+)([KMGTP]?)/
+        if (matcher.find()) {
+            long size = matcher.group(1).toLong()
+            String unit = matcher.group(2).toUpperCase()
+            switch (unit) {
+                case 'K': return size * 1024L
+                case 'M': return size * 1024L * 1024L
+                case 'G': return size * 1024L * 1024L * 1024L
+                case 'T': return size * 1024L * 1024L * 1024L * 1024L
+                case 'P': return size * 1024L * 1024L * 1024L * 1024L * 1024L
+                default: return size // Assuming bytes if no unit or unknown unit
+            }
+        }
+        return 0L
+    }
     
+    private static String findPrimaryIpFromAgentNics(List agentNics) {
+        if (!agentNics) return null
+        String firstIp = null
+        for (nic in agentNics) {
+            if (nic.'ip-addresses') {
+                for (ipInfo in nic.'ip-addresses') {
+                    if (ipInfo.'ip-address-type' == 'ipv4' && ipInfo.'ip-address' != '127.0.0.1') {
+                        if (firstIp == null) firstIp = ipInfo.'ip-address'
+                        // Add logic here if a "primary" marker exists or specific interface name is preferred
+                        // For now, returning the first valid non-localhost IPv4
+                        return ipInfo.'ip-address'
+                    }
+                }
+            }
+        }
+        return firstIp // Returns the first IP found, or null if none
+    }
+
 
     static ServiceResponse listProxmoxHypervisorHosts(HttpApiClient client, Map authConfig) {
         log.debug("listProxmoxHosts...")
@@ -531,9 +740,8 @@ class ProxmoxApiComputeUtil {
 
     private static ServiceResponse getApiV2Token(Map authConfig) {
         def path = "access/ticket"
-        log.debug("getApiV2Token: path: ${path}")
-        HttpApiClient client = new HttpApiClient()
-
+        log.debug("getApiV2Token: path: ${path} for apiUrl: ${authConfig.apiUrl}") // Added apiUrl for context
+        HttpApiClient client = new HttpApiClient() // This client is local to this method
         def rtn = new ServiceResponse(success: false)
         try {
 
@@ -609,4 +817,304 @@ class ProxmoxApiComputeUtil {
         return rtn
     }
     */
+
+    static ServiceResponse addVMDisk(HttpApiClient client, Map authConfig, String nodeName, String vmId, String storageName, Integer diskSizeGB, String diskType) {
+        log.debug("addVMDisk: vmId=${vmId}, nodeName=${nodeName}, storageName=${storageName}, diskSizeGB=${diskSizeGB}, diskType=${diskType}")
+
+        HttpApiClient internalClient = new HttpApiClient() // For fetching VM config without interfering with the passed client
+        try {
+            // 1. Authentication for internal calls if needed, or reuse main token.
+            // getApiV2Token creates its own client.
+            def tokenCfgResponse = getApiV2Token(authConfig)
+            if(!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in addVMDisk: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+            // Note: The 'client' parameter passed to addVMDisk is for the final POST.
+            // The GET for vmConfig uses 'internalClient'.
+
+            // 2. Get current VM config to find next available disk index
+            def vmConfigOpts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+            String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
+            log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
+            def vmConfigResponse = internalClient.callJsonApi(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
+
+            if (!vmConfigResponse.success || !vmConfigResponse.data?.data) {
+                log.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg} - ${vmConfigResponse.content}")
+                return ServiceResponse.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg ?: 'No data returned'}")
+            }
+
+            Map currentConfig = vmConfigResponse.data.data
+            log.debug("Current VM config: ${currentConfig}")
+
+            // 3. Determine next available disk index
+            int maxDisks
+            switch (diskType.toLowerCase()) {
+                case "scsi": maxDisks = 30; break // scsi0-scsi30
+                case "virtio": maxDisks = 15; break // virtio0-virtio15
+                case "ide": maxDisks = 3; break // ide0-ide3
+                case "sata": maxDisks = 5; break // sata0-sata5
+                default:
+                    return ServiceResponse.error("Unsupported diskType: ${diskType}. Must be one of scsi, virtio, ide, sata.")
+            }
+
+            String diskPrefix = diskType.toLowerCase()
+            int nextDiskIndex = -1
+            for (int i = 0; i <= maxDisks; i++) {
+                if (!currentConfig.containsKey("${diskPrefix}${i}")) {
+                    nextDiskIndex = i
+                    break
+                }
+            }
+
+            if (nextDiskIndex == -1) {
+                return ServiceResponse.error("No available disk slot found for type ${diskType} on VM ${vmId}.")
+            }
+
+            String newDiskParamName = "${diskPrefix}${nextDiskIndex}"
+            String newDiskParamValue = "${storageName},size=${diskSizeGB}G"
+            log.info("Determined next available disk: ${newDiskParamName} with value: ${newDiskParamValue}")
+
+            // 4. Execute Add Disk API Call (POST to config)
+            def addDiskBody = [ (newDiskParamName) : newDiskParamValue ]
+            def addDiskOpts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type': 'application/json',
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: addDiskBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Adding disk with POST to: ${authConfig.apiUrl}${configPath}")
+            log.debug("POST body: ${addDiskBody}")
+
+            def addDiskResult = client.callJsonApi(
+                authConfig.apiUrl,
+                configPath,
+                null, // queryParams
+                null, // body (using RequestOptions.body instead)
+                addDiskOpts,
+                'POST'
+            )
+
+            log.debug("Add disk API response: ${addDiskResult.toMap()}")
+
+            if (addDiskResult.success) {
+                // Proxmox API for config update returns a task ID.
+                // We might want to check the task status in a more advanced implementation.
+                // For now, a successful API call is considered sufficient.
+                log.info("Successfully initiated add disk operation for ${vmId}. Disk: ${newDiskParamName}, Task ID: ${addDiskResult.data?.data}")
+                return ServiceResponse.success("Disk ${newDiskParamName} added successfully. Task ID: ${addDiskResult.data?.data}", [taskId: addDiskResult.data?.data])
+            } else {
+                log.error("Failed to add disk ${newDiskParamName} to VM ${vmId}: ${addDiskResult.msg} - ${addDiskResult.content}")
+                return ServiceResponse.error("Failed to add disk ${newDiskParamName}: ${addDiskResult.msg ?: addDiskResult.content}")
+            }
+
+        } catch (e) {
+            log.error("Error adding disk to VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error adding disk to VM ${vmId}: ${e.message}")
+        } finally {
+            internalClient?.shutdownClient()
+        }
+    }
+
+    static ServiceResponse addVMNetworkInterface(HttpApiClient client, Map authConfig, String nodeName, String vmId, String bridgeName, String model, String vlanTag, Boolean firewallEnabled) {
+        log.debug("addVMNetworkInterface: vmId=${vmId}, nodeName=${nodeName}, bridgeName=${bridgeName}, model=${model}, vlanTag=${vlanTag}, firewallEnabled=${firewallEnabled}")
+
+        HttpApiClient internalClient = new HttpApiClient() // For fetching VM config
+        try {
+            // 1. Authentication for internal calls if needed
+            def tokenCfgResponse = getApiV2Token(authConfig) // Ensures token is fresh for subsequent calls if needed by internalClient
+            if(!tokenCfgResponse.success) {
+                 return ServiceResponse.error("Failed to get API token for Proxmox in addVMNetworkInterface: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+            // Note: The 'client' parameter passed to addVMNetworkInterface is for the final POST.
+            // The GET for vmConfig uses 'internalClient'.
+
+            // 2. Get current VM config to find next available network interface index
+            def vmConfigOpts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+            String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
+            log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
+            def vmConfigResponse = internalClient.callJsonApi(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
+
+            if (!vmConfigResponse.success || !vmConfigResponse.data?.data) {
+                log.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg} - ${vmConfigResponse.content}")
+                return ServiceResponse.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg ?: 'No data returned'}")
+            }
+
+            Map currentConfig = vmConfigResponse.data.data
+            log.debug("Current VM config: ${currentConfig}")
+
+            // 3. Determine next available network interface index (net0, net1, ...)
+            int maxNics = 31 // Proxmox typically supports net0 through net31
+            int nextNicIndex = -1
+            for (int i = 0; i <= maxNics; i++) {
+                if (!currentConfig.containsKey("net${i}")) {
+                    nextNicIndex = i
+                    break
+                }
+            }
+
+            if (nextNicIndex == -1) {
+                return ServiceResponse.error("No available network interface slot found for VM ${vmId}.")
+            }
+
+            String newNicParamName = "net${nextNicIndex}"
+
+            // 4. Construct Network Configuration String
+            StringBuilder nicConfig = new StringBuilder()
+            nicConfig.append("${bridgeName},model=${model}")
+            if (vlanTag != null && !vlanTag.trim().isEmpty()) {
+                nicConfig.append(",tag=${vlanTag.trim()}")
+            }
+            if (firewallEnabled != null && firewallEnabled) {
+                nicConfig.append(",firewall=1")
+            }
+            String newNicParamValue = nicConfig.toString()
+            log.info("Determined next available NIC: ${newNicParamName} with value: ${newNicParamValue}")
+
+            // 5. Execute Add Network Interface API Call (POST to config)
+            def addNicBody = [ (newNicParamName) : newNicParamValue ]
+            def addNicOpts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type': 'application/json',
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: addNicBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Adding NIC with POST to: ${authConfig.apiUrl}${configPath}")
+            log.debug("POST body: ${addNicBody}")
+
+            def addNicResult = client.callJsonApi(
+                authConfig.apiUrl,
+                configPath,
+                null, 
+                null, 
+                addNicOpts,
+                'POST'
+            )
+
+            log.debug("Add NIC API response: ${addNicResult.toMap()}")
+
+            if (addNicResult.success) {
+                log.info("Successfully initiated add NIC operation for ${vmId}. NIC: ${newNicParamName}, Task ID: ${addNicResult.data?.data}")
+                return ServiceResponse.success("Network interface ${newNicParamName} added successfully. Task ID: ${addNicResult.data?.data}", [taskId: addNicResult.data?.data])
+            } else {
+                log.error("Failed to add NIC ${newNicParamName} to VM ${vmId}: ${addNicResult.msg} - ${addNicResult.content}")
+                return ServiceResponse.error("Failed to add NIC ${newNicParamName}: ${addNicResult.msg ?: addNicResult.content}")
+            }
+
+        } catch (e) {
+            log.error("Error adding NIC to VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error adding NIC to VM ${vmId}: ${e.message}")
+        } finally {
+            internalClient?.shutdownClient()
+        }
+    }
+
+    static ServiceResponse requestVMConsole(HttpApiClient client, Map authConfig, String nodeName, String vmId, String consoleType) {
+        log.debug("requestVMConsole: vmId=${vmId}, nodeName=${nodeName}, consoleType=${consoleType}")
+
+        try {
+            // 1. Authentication for internal calls if needed
+            def tokenCfgResponse = getApiV2Token(authConfig)  // Ensures token is fresh for subsequent calls
+             if(!tokenCfgResponse.success) {
+                 return ServiceResponse.error("Failed to get API token for Proxmox in requestVMConsole: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+            // Note: The 'client' parameter passed to requestVMConsole is for the actual console request POST.
+
+            // 2. Determine API path and parameters based on consoleType
+            String endpointPathSegment
+            switch (consoleType.toLowerCase()) {
+                case "vnc":
+                    endpointPathSegment = "vncproxy"
+                    break
+                // case "spice": // Example for future SPICE support
+                //     endpointPathSegment = "spiceproxy"
+                //     break
+                // case "xtermjs": // Example for future xtermjs support
+                // endpointPathSegment = "termproxy" // or similar, check Proxmox docs
+                // break
+                default:
+                    return ServiceResponse.error("Unsupported console type: ${consoleType}. Supported types: 'vnc'.")
+            }
+
+            String apiPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/${endpointPathSegment}"
+            
+            // Proxmox vncproxy is a POST request, potentially with an empty body or specific params if needed.
+            // For vncproxy, the documentation suggests an empty POST or one with 'websocket': 1 for websocket-only.
+            // Let's assume an empty body for now, which usually returns all necessary details.
+            def requestBody = [:] // Empty body, or add specific params like ['websocket': 1] if needed
+
+            def consoleOpts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type': 'application/json', // Proxmox API generally expects JSON for POST bodies
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: requestBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Requesting ${consoleType} console with POST to: ${authConfig.apiUrl}${apiPath}")
+            log.debug("POST body: ${requestBody}")
+
+            def consoleResult = client.callJsonApi(
+                authConfig.apiUrl,
+                apiPath,
+                null, // queryParams
+                null, // body (using RequestOptions.body instead for POST)
+                consoleOpts,
+                'POST'
+            )
+
+            log.debug("${consoleType} console API response: ${consoleResult.toMap()}")
+
+            if (consoleResult.success && consoleResult.data?.data) {
+                Map consoleData = consoleResult.data.data
+                // Add the console type to the returned data for clarity upstream
+                consoleData.type = consoleType.toLowerCase()
+                // The 'host' field from Proxmox might be '::1' if on the node itself.
+                // The actual Proxmox server address (from authConfig.apiUrl) is usually needed.
+                consoleData.proxmoxHost = new URL(authConfig.apiUrl).getHost()
+                consoleData.proxmoxPort = new URL(authConfig.apiUrl).getPort() != -1 ? new URL(authConfig.apiUrl).getPort() : 8006 // Default Proxmox web port
+
+                log.info("Successfully requested ${consoleType} console for VM ${vmId}. Details: ${consoleData}")
+                return ServiceResponse.success("Console information retrieved successfully.", consoleData)
+            } else {
+                String errorMsg = consoleResult.msg ?: consoleResult.content ?: "Failed to retrieve console information."
+                log.error("Failed to request ${consoleType} console for VM ${vmId}: ${errorMsg}")
+                return ServiceResponse.error("Failed to request ${consoleType} console: ${errorMsg}")
+            }
+
+        } catch (e) {
+            log.error("Error requesting ${consoleType} console for VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error requesting ${consoleType} console for VM ${vmId}: ${e.message}")
+        }
+        // No client.shutdownClient() here as the client is passed in and managed by the caller
+    }
 }

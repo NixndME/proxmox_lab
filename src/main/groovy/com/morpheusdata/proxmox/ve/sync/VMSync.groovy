@@ -12,6 +12,7 @@ import com.morpheusdata.model.OsType
 import com.morpheusdata.model.projection.ComputeServerIdentityProjection
 import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
+import groovy.json.JsonOutput
 import groovy.util.logging.Slf4j
 
 @Slf4j
@@ -84,69 +85,163 @@ class VMSync {
         }
 
         items.each { Map cloudItem ->
+            log.debug("VMSync.addMissingVirtualMachines - Creating ComputeServer for cloudItem: name=${cloudItem.name}, vmid=${cloudItem.vmid}")
+            def configMap = [:]
+            // Disks
+            def totalDiskSizeBytes = cloudItem.disks?.sum { it.sizeBytes ?: 0L } ?: 0L
+            configMap.proxmoxDisks = JsonOutput.toJson(cloudItem.disks ?: [])
+
+            // Network Interfaces
+            configMap.proxmoxNics = JsonOutput.toJson(cloudItem.networkInterfaces ?: [])
+            
+            // QEMU Agent
+            configMap.qemuAgentStatus = cloudItem.qemuAgent?.status ?: 'unknown'
+            configMap.qemuAgentData = cloudItem.qemuAgent?.data ? JsonOutput.toJson(cloudItem.qemuAgent.data) : null
+            configMap.qemuAgentRawInterfaces = cloudItem.qemuAgent?.networkInterfaces ? JsonOutput.toJson(cloudItem.qemuAgent.networkInterfaces) : null
+
             def newVM = new ComputeServer(
                 account          : cloud.account,
-                externalId       : cloudItem.vmid,
-                name             : cloudItem.name,
-                externalIp       : cloudItem.ip,
-                internalIp       : cloudItem.ip,
-                sshHost          : cloudItem.ip,
-                sshUsername      : 'root',
+                externalId       : cloudItem.vmid.toString(),
+                name             : cloudItem.name ?: "VM ${cloudItem.vmid}",
+                externalIp       : cloudItem.ip ?: "0.0.0.0",
+                internalIp       : cloudItem.ip ?: "0.0.0.0",
+                sshHost          : cloudItem.ip ?: "0.0.0.0",
+                sshUsername      : 'root', // Default, may not always be correct
                 provision        : false,
                 cloud            : cloud,
-                lvmEnabled       : false,
-                managed          : false,
+                lvmEnabled       : false, // Proxmox specific, generally false for Morpheus context
+                managed          : false, // This is for unmanaged VMs
                 serverType       : 'vm',
-                status           : 'provisioned',
-                uniqueId         : cloudItem.vmid,
-                powerState       : cloudItem.status == 'running' ? ComputeServer.PowerState.on : ComputeServer.PowerState.off,
-                maxMemory        : cloudItem.maxmem,
-                maxCores         : cloudItem.maxCores,
-                coresPerSocket   : cloudItem.coresPerSocket,
+                status           : 'provisioned', // Initial status in Morpheus
+                uniqueId         : cloudItem.vmid.toString(),
+                powerState       : (cloudItem.status == 'running' || cloudItem.status == 'online') ? ComputeServer.PowerState.on : ComputeServer.PowerState.off,
+                maxMemory        : cloudItem.maxmem ?: 0L, // From cluster/resources (bytes)
+                maxCores         : cloudItem.maxCores ?: 1L, // Calculated in listVMs
+                coresPerSocket   : cloudItem.coresPerSocket ?: 1L, // Calculated in listVMs
+                maxStorage       : totalDiskSizeBytes, // Sum of all virtual disks
+                // usedStorage will be set by updateMachineMetrics from cloudItem.disk if available
                 parentServer     : hostIdentitiesMap[cloudItem.node],
-                osType           :'unknown',
-                serverOs         : new OsType(code: 'unknown'),
+                osType           : cloudItem.qemuAgent?.data?.ostype ? (cloudItem.qemuAgent.data.ostype.toLowerCase().contains('windows') ? 'windows' : cloudItem.qemuAgent.data.ostype) : 'unknown',
+                serverOs         : cloudItem.qemuAgent?.data?.id ? new OsType(code: cloudItem.qemuAgent.data.id.toLowerCase(), name: cloudItem.qemuAgent.data.name, vendor: cloudItem.qemuAgent.data.id) : new OsType(code: 'unknown'),
                 category         : "proxmox.ve.vm.${cloud.id}",
-                computeServerType: computeServerType
+                computeServerType: computeServerType,
+                configMap        : configMap
             )
             newVMs << newVM
         }
-        context.async.computeServer.bulkCreate(newVMs).blockingGet()
+        if(newVMs) {
+            context.async.computeServer.bulkCreate(newVMs).blockingGet()
+        }
     }
 
 
     private updateMatchingVMs(List<SyncTask.UpdateItem<ComputeServer, Map>> updateItems) {
         for (def updateItem in updateItems) {
             def existingItem = updateItem.existingItem
-            def cloudItem = updateItem.masterItem
-            def doUpdate = false
+            def cloudItem = updateItem.masterItem // This is the enriched map from listVMs
+            log.debug("VMSync.updateMatchingVMs - Updating ComputeServer: id=${existingItem.id}, name=${existingItem.name}, externalId=${existingItem.externalId} with cloudItem: name=${cloudItem.name}, vmid=${cloudItem.vmid}")
+            def doSave = false
 
-            if (cloudItem.hostname != existingItem.hostname) {
-                existingItem.hostname = cloudItem.hostname
-                doUpdate = true
+            // Initialize configMap if null
+            if (existingItem.configMap == null) {
+                existingItem.configMap = [:]
             }
 
-            if (cloudItem.externalIp != existingItem.externalIp) {
-                existingItem.setExternalIp(cloudItem.externalIp)
-                doUpdate = true
+            // Update basic properties
+            if (cloudItem.name && cloudItem.name != existingItem.name) {
+                existingItem.name = cloudItem.name
+                doSave = true
+            }
+            if (cloudItem.ip && cloudItem.ip != existingItem.externalIp) {
+                existingItem.externalIp = cloudItem.ip
+                existingItem.internalIp = cloudItem.ip // Assuming same for now
+                existingItem.sshHost = cloudItem.ip
+                doSave = true
+            }
+            def newPowerState = (cloudItem.status == 'running' || cloudItem.status == 'online') ? ComputeServer.PowerState.on : ComputeServer.PowerState.off
+            if (newPowerState != existingItem.powerState) {
+                existingItem.powerState = newPowerState
+                doSave = true
+            }
+            if (cloudItem.maxCores && cloudItem.maxCores != existingItem.maxCores) {
+                 existingItem.maxCores = cloudItem.maxCores
+                 doSave = true
+            }
+            if (cloudItem.coresPerSocket && cloudItem.coresPerSocket != existingItem.coresPerSocket) {
+                 existingItem.coresPerSocket = cloudItem.coresPerSocket
+                 doSave = true
+            }
+             if (cloudItem.maxmem && cloudItem.maxmem != existingItem.maxMemory) {
+                 existingItem.maxMemory = cloudItem.maxmem
+                 doSave = true
+            }
+            
+            // Disks
+            def totalDiskSizeBytes = cloudItem.disks?.sum { it.sizeBytes ?: 0L } ?: 0L
+            if (totalDiskSizeBytes != existingItem.maxStorage) {
+                existingItem.maxStorage = totalDiskSizeBytes
+                doSave = true
+            }
+            def newDisksJson = JsonOutput.toJson(cloudItem.disks ?: [])
+            if (newDisksJson != existingItem.configMap.proxmoxDisks) {
+                existingItem.configMap.proxmoxDisks = newDisksJson
+                doSave = true
             }
 
-            doUpdate ? context.async.computeServer.bulkSave([existingItem]).blockingGet() : null
+            // Network Interfaces
+            def newNicsJson = JsonOutput.toJson(cloudItem.networkInterfaces ?: [])
+            if (newNicsJson != existingItem.configMap.proxmoxNics) {
+                existingItem.configMap.proxmoxNics = newNicsJson
+                doSave = true
+            }
 
+            // QEMU Agent
+            def newAgentStatus = cloudItem.qemuAgent?.status ?: 'unknown'
+            if (newAgentStatus != existingItem.configMap.qemuAgentStatus) {
+                existingItem.configMap.qemuAgentStatus = newAgentStatus
+                doSave = true
+            }
+            def newAgentDataJson = cloudItem.qemuAgent?.data ? JsonOutput.toJson(cloudItem.qemuAgent.data) : null
+            if (newAgentDataJson != existingItem.configMap.qemuAgentData) {
+                existingItem.configMap.qemuAgentData = newAgentDataJson
+                doSave = true
+            }
+            def newAgentNicsJson = cloudItem.qemuAgent?.networkInterfaces ? JsonOutput.toJson(cloudItem.qemuAgent.networkInterfaces) : null
+             if (newAgentNicsJson != existingItem.configMap.qemuAgentRawInterfaces) {
+                existingItem.configMap.qemuAgentRawInterfaces = newAgentNicsJson
+                doSave = true
+            }
+
+            // OS Type (if agent provides it and it's different)
+            def newOsTypeCode = cloudItem.qemuAgent?.data?.id?.toLowerCase() ?: 'unknown'
+            def newOsTypeName = cloudItem.qemuAgent?.data?.name ?: 'Unknown OS'
+            if (existingItem.serverOs == null || newOsTypeCode != existingItem.serverOs.code) {
+                existingItem.osType = cloudItem.qemuAgent?.data?.ostype ? (cloudItem.qemuAgent.data.ostype.toLowerCase().contains('windows') ? 'windows' : cloudItem.qemuAgent.data.ostype) : 'unknown'
+                existingItem.serverOs = new OsType(code: newOsTypeCode, name: newOsTypeName, vendor: cloudItem.qemuAgent?.data?.id) // Assuming vendor can be the ID
+                doSave = true
+            }
+
+
+            if (doSave) {
+                context.async.computeServer.bulkSave([existingItem]).blockingGet()
+            }
+
+            // Update metrics using the new detailed info
+            // cloudItem.disk is usedBytes from Proxmox 'status' or 'cluster/resources' (where it's confusingly called maxdisk)
+            // cloudItem.maxmem is total memory in bytes from Proxmox 'status' or 'cluster/resources'
+            // cloudItem.mem is used memory in bytes from Proxmox 'status' or 'cluster/resources'
+            // cloudItem.maxCores is already calculated based on sockets and cores
             updateMachineMetrics(
-                    existingItem,
-                    cloudItem.maxcpu?.toLong(),
-                    cloudItem.maxdisk?.toLong(),
-                    cloudItem.disk?.toLong(),
-                    cloudItem.maxmem?.toLong(),
-                    cloudItem.mem.toLong(),
-                    cloudItem.maxcpu?.toLong(),
-                    (cloudItem.status == 'online') ? ComputeServer.PowerState.on : ComputeServer.PowerState.off
+                existingItem,
+                cloudItem.maxCores,    // maxCores (already calculated number of cores)
+                totalDiskSizeBytes,    // maxStorage (sum of all virtual disks)
+                cloudItem.disk,        // usedStorage (Proxmox `disk` field from status, in bytes)
+                cloudItem.maxmem,      // maxMemory (in bytes)
+                cloudItem.mem,         // usedMemory (in bytes)
+                cloudItem.maxCores,    // maxCpu (using maxCores as it represents total vCPUs)
+                newPowerState
             )
         }
-
-        //Example:
-        // Nutanix - https://github.com/gomorpheus/morpheus-nutanix-prism-plugin/blob/master/src/main/groovy/com/morpheusdata/nutanix/prism/plugin/sync/VirtualMachinesSync.groovy
     }
 
 
