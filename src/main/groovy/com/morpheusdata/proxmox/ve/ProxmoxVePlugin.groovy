@@ -38,6 +38,7 @@ class ProxmoxVePlugin extends Plugin {
         this.registerProvider(new ProxmoxVeProvisionProvider(this, this.morpheus))
         this.registerProvider(new ProxmoxVeOptionSourceProvider(this, this.morpheus))
         this.registerProvider(new ProxmoxVeVirtualImageDatasetProvider(this, this.morpheus))
+        this.registerProvider(new ProxmoxBackupProvider(this, this.morpheus))
         def networkProvider = new ProxmoxNetworkProvider(this, this.morpheus)
         this.registerProvider(networkProvider)
         networkProviderCode = networkProvider.code
