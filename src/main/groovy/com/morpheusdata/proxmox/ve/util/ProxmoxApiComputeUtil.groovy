@@ -930,7 +930,15 @@ class ProxmoxApiComputeUtil {
             )
             String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
             log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
-            def vmConfigResponse = ProxmoxApiUtil.callJsonApiWithRetry(internalClient,(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
+            def vmConfigResponse = ProxmoxApiUtil.callJsonApiWithRetry(
+                internalClient,
+                authConfig.apiUrl,
+                configPath,
+                null,
+                null,
+                vmConfigOpts,
+                'GET'
+            )
 
             if (!vmConfigResponse.success || !vmConfigResponse.data?.data) {
                 log.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg} - ${vmConfigResponse.content}")
@@ -1039,7 +1047,15 @@ class ProxmoxApiComputeUtil {
             )
             String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
             log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
-            def vmConfigResponse = ProxmoxApiUtil.callJsonApiWithRetry(internalClient,(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
+            def vmConfigResponse = ProxmoxApiUtil.callJsonApiWithRetry(
+                internalClient,
+                authConfig.apiUrl,
+                configPath,
+                null,
+                null,
+                vmConfigOpts,
+                'GET'
+            )
 
             if (!vmConfigResponse.success || !vmConfigResponse.data?.data) {
                 log.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg} - ${vmConfigResponse.content}")
