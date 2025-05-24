@@ -60,19 +60,19 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 	 */
 	@Override
 	Collection<NetworkType> getNetworkTypes() {
-		NetworkType bridgeNetwork = new NetworkType([
-				code              : 'proxmox-ve-bridge-network',
-				externalType      : 'LinuxBridge',
-				cidrEditable      : true,
-				dhcpServerEditable: true,
-				dnsEditable       : true,
-				gatewayEditable   : true,
-				vlanIdEditable    : false,
-				canAssignPool     : true,
-				name              : 'Proxmox VE Bridge Network',
-				hasNetworkServer  : true,
-				creatable: true
-		])
+                NetworkType bridgeNetwork = new NetworkType([
+                                code              : 'proxmox-ve-bridge-network',
+                                externalType      : 'LinuxBridge',
+                                cidrEditable      : true,
+                                dhcpServerEditable: true,
+                                dnsEditable       : true,
+                                gatewayEditable   : true,
+                                vlanIdEditable    : true,
+                                canAssignPool     : true,
+                                name              : 'Proxmox VE Bridge Network',
+                                hasNetworkServer  : true,
+                                creatable: true
+                ])
 
 		return [bridgeNetwork]
 
@@ -80,9 +80,45 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 
 
 	@Override
-	Collection<OptionType> getOptionTypes() {
-		return null
-	}
+        Collection<OptionType> getOptionTypes() {
+                Collection<OptionType> options = []
+
+                options << new OptionType(
+                                name: 'VLAN ID',
+                                code: 'proxmox-network-vlan-id',
+                                fieldName: 'vlanId',
+                                fieldLabel: 'VLAN ID',
+                                fieldContext: 'config',
+                                inputType: OptionType.InputType.TEXT,
+                                required: false,
+                                displayOrder: 0
+                )
+
+                options << new OptionType(
+                                name: 'Network Mode',
+                                code: 'proxmox-network-mode',
+                                fieldName: 'networkMode',
+                                fieldLabel: 'Network Mode',
+                                fieldContext: 'config',
+                                inputType: OptionType.InputType.SELECT,
+                                required: false,
+                                displayOrder: 1,
+                                config: '{"options":[{"name":"Bridge","value":"bridge"},{"name":"NAT","value":"nat"}]}'
+                )
+
+                options << new OptionType(
+                                name: 'Use Open vSwitch',
+                                code: 'proxmox-network-ovs',
+                                fieldName: 'ovs',
+                                fieldLabel: 'Use Open vSwitch',
+                                fieldContext: 'config',
+                                inputType: OptionType.InputType.CHECKBOX,
+                                required: false,
+                                displayOrder: 2
+                )
+
+                return options
+        }
 
 	@Override
 	Collection<OptionType> getSecurityGroupOptionTypes() {
@@ -167,11 +203,18 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                         return
                                 }
                                 def tokenCfg = tokenResp.data
-                                def body = [iface:(network.externalId ?: network.name), type:'bridge']
+                                def vlanId = network.configMap?.vlanId
+                                def mode = network.configMap?.networkMode ?: 'bridge'
+                                def ovsEnabled = network.configMap?.ovs in ['true','on',true,'1']
+                                def body = [iface:(network.externalId ?: network.name), type: mode]
                                 if(network.cidr)
                                         body.cidr = network.cidr
                                 if(network.gateway)
                                         body.gateway = network.gateway
+                                if(vlanId)
+                                        body.vlan = vlanId
+                                if(ovsEnabled)
+                                        body.ovs = true
 
                                 def optsReq = new HttpApiClient.RequestOptions(
                                         headers:[
@@ -244,11 +287,20 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                         return
                                 }
                                 def tokenCfg = tokenResp.data
+                                def vlanId = network.configMap?.vlanId
+                                def mode = network.configMap?.networkMode
+                                def ovsEnabled = network.configMap?.ovs in ['true','on',true,'1']
                                 def body = [:]
                                 if(network.cidr)
                                         body.cidr = network.cidr
                                 if(network.gateway)
                                         body.gateway = network.gateway
+                                if(vlanId)
+                                        body.vlan = vlanId
+                                if(mode)
+                                        body.type = mode
+                                if(ovsEnabled)
+                                        body.ovs = true
 
                                 def optsReq = new HttpApiClient.RequestOptions(
                                         headers:[

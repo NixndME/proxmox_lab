@@ -180,7 +180,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				dhcpServerEditable: true,
 				dnsEditable       : true,
 				gatewayEditable   : true,
-				vlanIdEditable    : false,
+                                vlanIdEditable    : true,
 				canAssignPool     : true,
 				name              : 'Proxmox VE Bridge Network',
 				hasNetworkServer  : true,
