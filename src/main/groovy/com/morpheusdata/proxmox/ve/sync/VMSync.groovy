@@ -42,7 +42,7 @@ class VMSync {
             log.debug "Execute VMSync STARTED: ${cloud.id}"
             def cloudItems = ProxmoxApiComputeUtil.listVMs(apiClient, authConfig).data
             def domainRecords = context.async.computeServer.listIdentityProjections(cloud.id, null).filter {
-                it.computeServerTypeCode == 'proxmox-qemu-vm-unmanaged'
+                it.computeServerTypeCode in ['proxmox-qemu-vm-unmanaged', 'proxmox-qemu-vm']
             }
 
             log.debug("VM cloudItems: ${cloudItems.collect { it.toString() }}")
@@ -76,9 +76,10 @@ class VMSync {
 
         def newVMs = []
 
+        // Map available Proxmox hosts by their externalId (node name) so VMs can be linked to the correct host
         def hostIdentitiesMap = context.async.computeServer.listIdentityProjections(cloud.id, null).filter {
-            it.computeServerTypeCode == 'proxmox-qemu-vm'
-        }.toMap {it.externalId }.blockingGet()
+            it.computeServerTypeCode == 'proxmox-ve-node'
+        }.toMap { it.externalId }.blockingGet()
 
         def computeServerType = cloudProvider.computeServerTypes.find {
             it.code == 'proxmox-qemu-vm-unmanaged'
@@ -93,11 +94,13 @@ class VMSync {
 
             // Network Interfaces
             configMap.proxmoxNics = JsonOutput.toJson(cloudItem.networkInterfaces ?: [])
-            
+
             // QEMU Agent
             configMap.qemuAgentStatus = cloudItem.qemuAgent?.status ?: 'unknown'
             configMap.qemuAgentData = cloudItem.qemuAgent?.data ? JsonOutput.toJson(cloudItem.qemuAgent.data) : null
             configMap.qemuAgentRawInterfaces = cloudItem.qemuAgent?.networkInterfaces ? JsonOutput.toJson(cloudItem.qemuAgent.networkInterfaces) : null
+            // VM Tags
+            configMap.proxmoxTags = JsonOutput.toJson(cloudItem.tags ?: [])
 
             def newVM = new ComputeServer(
                 account          : cloud.account,
@@ -192,6 +195,12 @@ class VMSync {
             def newNicsJson = JsonOutput.toJson(cloudItem.networkInterfaces ?: [])
             if (newNicsJson != existingItem.configMap.proxmoxNics) {
                 existingItem.configMap.proxmoxNics = newNicsJson
+                doSave = true
+            }
+
+            def newTagsJson = JsonOutput.toJson(cloudItem.tags ?: [])
+            if (newTagsJson != existingItem.configMap.proxmoxTags) {
+                existingItem.configMap.proxmoxTags = newTagsJson
                 doSave = true
             }
 

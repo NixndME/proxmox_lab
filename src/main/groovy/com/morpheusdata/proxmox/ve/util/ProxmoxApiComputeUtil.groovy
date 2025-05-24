@@ -633,6 +633,12 @@ class ProxmoxApiComputeUtil {
                         Map configData = vmConfigResponse.data
                         vm.maxCores = (configData.sockets ?: 1).toInteger() * (configData.cores ?: 1).toInteger()
                         vm.coresPerSocket = (configData.cores ?: 1).toInteger()
+                        // Capture VM tags from the config. Proxmox returns tags as a semicolon separated string.
+                        if(configData.tags) {
+                            vm.tags = configData.tags.toString().split(';').collect { it.trim() }.findAll { it }
+                        } else {
+                            vm.tags = []
+                        }
 
                         // Parse Disks
                         configData.each { key, value ->
