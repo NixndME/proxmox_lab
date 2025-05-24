@@ -29,7 +29,7 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
         return morpheusContext
     }
 
-    @Override
+    // Legacy internal validation method
     ServiceResponse validateRestore(BackupResult backupResult, Instance instance, ComputeServer server, Map config, Map opts) {
         log.debug("ProxmoxBackupRestoreProvider.validateRestore for backupResult: ${backupResult.id}, instance: ${instance?.name}, server: ${server?.name}")
         if (!backupResult.snapshotId && !(backupResult.getConfigMap()?.snapshotId)) {
@@ -38,13 +38,13 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
         return ServiceResponse.success()
     }
 
-    @Override
+    // Legacy internal preparation method
     ServiceResponse prepareRestore(BackupResult backupResult, Instance instance, ComputeServer server, Map config, Map opts) {
         log.debug("ProxmoxBackupRestoreProvider.prepareRestore for backupResult: ${backupResult.id}")
         return ServiceResponse.success()
     }
 
-    @Override
+    // Legacy internal execution method
     ServiceResponse<BackupRestoreResponse> executeRestore(BackupResult backupResult, Instance instance, Workload workload, ComputeServer server, Map<String,Object> config, Map<String,Object> opts) {
         log.debug("ProxmoxBackupRestoreProvider.executeRestore for backupResult: ${backupResult.id} to server: ${server.name}")
         ServiceResponse<BackupRestoreResponse> rtn = ServiceResponse.prepare(new BackupRestoreResponse(backupResult))
@@ -111,24 +111,61 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
         return rtn
     }
 
-    @Override
+    // Legacy internal refresh method
     ServiceResponse<BackupRestoreResponse> refreshRestore(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
         log.debug("ProxmoxBackupRestoreProvider.refreshRestore for backupResult: ${backupResult.id}")
         // TODO: Implement if Proxmox snapshot rollback is asynchronous.
         return ServiceResponse.success(new BackupRestoreResponse(backupResult))
     }
 
-    @Override
+    // Legacy internal failure handler
     ServiceResponse failRestore(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
         log.debug("ProxmoxBackupRestoreProvider.failRestore for backupResult: ${backupResult.id}")
         // backupResult.restoreStatus = BackupResult.Status.FAILED // Example
-        // morpheusContext.async.backup.saveResult(backupResult).blockingGet() 
+        // morpheusContext.async.backup.saveResult(backupResult).blockingGet()
         return ServiceResponse.success()
     }
 
-    @Override
+    // Legacy internal cleanup method
     ServiceResponse cleanupRestore(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
         log.debug("ProxmoxBackupRestoreProvider.cleanupRestore for backupResult: ${backupResult.id}")
         return ServiceResponse.success()
+    }
+
+    /*
+     * Methods required by the Morpheus BackupRestoreProvider interface
+     * These wrap the legacy internal implementations above.
+     */
+
+    @Override
+    ServiceResponse configureRestoreBackup(BackupResult backupResult, Instance instance, ComputeServer server, Map config, Map opts) {
+        return prepareRestore(backupResult, instance, server, config, opts)
+    }
+
+    @Override
+    ServiceResponse validateRestoreBackup(BackupResult backupResult, Instance instance, ComputeServer server, Map config, Map opts) {
+        return validateRestore(backupResult, instance, server, config, opts)
+    }
+
+    @Override
+    ServiceResponse<Map<String,Object>> getRestoreOptions(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
+        // No custom options for now
+        return ServiceResponse.success([:])
+    }
+
+    @Override
+    Map<String,Object> getBackupRestoreInstanceConfig(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
+        // Return an empty config map; override if provider needs specific values
+        return [:]
+    }
+
+    @Override
+    ServiceResponse<BackupRestoreResponse> restoreBackup(BackupResult backupResult, Instance instance, Workload workload, ComputeServer server, Map<String,Object> config, Map<String,Object> opts) {
+        return executeRestore(backupResult, instance, workload, server, config, opts)
+    }
+
+    @Override
+    ServiceResponse<BackupRestoreResponse> refreshBackupRestoreResult(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
+        return refreshRestore(backupResult, instance, server, opts)
     }
 }
