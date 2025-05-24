@@ -34,7 +34,11 @@ class ProxmoxApiUtil {
         while(attempt < maxAttempts) {
             attempt++
             try {
+                log.info("Calling ${method} ${apiUrl}${path}")
                 resp = client.callJsonApi(apiUrl, path, queryParams, body, opts, method)
+                if(!resp?.success) {
+                    log.error("API ${method} ${path} failed - status: ${resp?.statusCode}, msg: ${resp?.msg ?: resp?.content}")
+                }
                 if(resp?.success || !isTransientFailure(resp) || attempt >= maxAttempts) {
                     return resp
                 }
