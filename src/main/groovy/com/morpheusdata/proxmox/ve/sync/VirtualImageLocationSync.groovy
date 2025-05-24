@@ -78,9 +78,9 @@ class VirtualImageLocationSync {
             }.start()
 
         } catch (e) {
-            log.error("Error in VirtualImageSync execute : ${e}", e)
+            log.error("Error in VirtualImageLocationSync execute : ${e}", e)
         }
-        log.debug("Execute VirtualImageSync COMPLETED: ${cloud.id}")
+        log.debug("Execute VirtualImageLocationSync COMPLETED: ${cloud.id}")
     }
 
 
