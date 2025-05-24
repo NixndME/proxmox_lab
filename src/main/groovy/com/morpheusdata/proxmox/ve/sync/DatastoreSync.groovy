@@ -8,7 +8,6 @@ import com.morpheusdata.core.util.SyncTask
 import com.morpheusdata.model.Account
 import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.Datastore
-import com.morpheusdata.model.StorageVolume
 import com.morpheusdata.model.projection.DatastoreIdentity
 import groovy.util.logging.Slf4j
 
@@ -43,7 +42,7 @@ class DatastoreSync {
             def cloudItems = datastoreResults?.data
             def domainRecords = morpheusContext.async.cloud.datastore.listSyncProjections(cloud.id)
 
-            SyncTask<DatastoreIdentity, Map, StorageVolume> syncTask = new SyncTask<>(domainRecords, cloudItems as Collection)
+            SyncTask<DatastoreIdentity, Map, Datastore> syncTask = new SyncTask<>(domainRecords, cloudItems as Collection)
             syncTask.addMatchFunction { DatastoreIdentity domainObject, Map cloudItem ->
                 domainObject.externalId == cloudItem.storage
             }.withLoadObjectDetails { List<SyncTask.UpdateItemDto<DatastoreIdentity, Map>> updateItems ->
@@ -56,7 +55,7 @@ class DatastoreSync {
             }.onUpdate { List<SyncTask.UpdateItem<Datastore, Map>> updateItems ->
                 updateMatchedDatastores(cloud, updateItems)
             }.onDelete { removeItems ->
-                removeMissingDatastores(cloud, removeItems)
+                removeMissingDatastores(removeItems)
             }.start()
 
         }
