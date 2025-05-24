@@ -84,7 +84,7 @@ jar {
 				'Morpheus-Name': 'Proxmox VE',
 				'Morpheus-Organization': 'morpheus',
 				'Morpheus-Code': 'proxmox-ve',
-				'Morpheus-Description': 'TODO: Fill in the Plugin Description',
+                                'Morpheus-Description': 'Proxmox VE integration plugin for Morpheus',
 				'Morpheus-Logo': 'assets/morpheus.svg',
 				'Morpheus-Logo-Dark': 'assets/morpheus.svg',
 				'Morpheus-Labels': 'Plugin',

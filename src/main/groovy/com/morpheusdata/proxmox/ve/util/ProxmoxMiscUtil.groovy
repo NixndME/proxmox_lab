@@ -44,7 +44,7 @@ class ProxmoxMiscUtil {
             log.debug("File uploaded: $localPath to $remoteFilePath in $duration seconds")
 
         } catch (Exception e) {
-            e.printStackTrace()
+            log.error("Error uploading file via SFTP: ${e.message}", e)
         } finally {
             if (channelSftp != null) {
                 channelSftp.exit()
@@ -91,7 +91,7 @@ class ProxmoxMiscUtil {
             log.debug("File created: $destFilePath in $duration seconds")
 
         } catch (Exception e) {
-            e.printStackTrace()
+            log.error("Error creating file via SFTP: ${e.message}", e)
         } finally {
             if (channelSftp != null) {
                 channelSftp.exit()
