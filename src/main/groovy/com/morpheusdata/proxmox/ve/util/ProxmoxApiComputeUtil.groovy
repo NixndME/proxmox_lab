@@ -1653,4 +1653,48 @@ class ProxmoxApiComputeUtil {
             return ServiceResponse.error("Error updating network interface ${interfaceName} on VM ${vmId}: ${e.message}")
         }
     }
+
+    static ServiceResponse convertVMToTemplate(HttpApiClient client, Map authConfig, String nodeName, String vmId) {
+        log.debug("convertVMToTemplate: vmId=${vmId} on node ${nodeName}")
+
+        try {
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return tokenCfgResponse
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            def opts = [
+                    headers: [
+                            'Content-Type'       : 'application/json',
+                            'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    contentType: ContentType.APPLICATION_JSON,
+                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+            ]
+
+            String apiPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/template"
+            log.debug("Converting VM ${vmId} on node ${nodeName} to template via ${authConfig.apiUrl}${apiPath}")
+
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client,
+                    authConfig.apiUrl,
+                    apiPath,
+                    null,
+                    null,
+                    new HttpApiClient.RequestOptions(opts),
+                    'POST'
+            )
+
+            if(results.success) {
+                log.info("Successfully initiated VM to template conversion for ${vmId} on ${nodeName}")
+                return ServiceResponse.success("VM ${vmId} conversion initiated", results.data)
+            } else {
+                return ProxmoxApiUtil.validateApiResponse(results, "Failed converting VM ${vmId} to template")
+            }
+        } catch(e) {
+            log.error("Error converting VM ${vmId} on node ${nodeName} to template: ${e.message}", e)
+            return ServiceResponse.error("Error converting VM ${vmId} to template: ${e.message}")
+        }
+    }
 }

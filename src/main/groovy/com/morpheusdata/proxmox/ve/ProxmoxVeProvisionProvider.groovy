@@ -824,17 +824,61 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 	 * @return Response from API
 	 */
 	@Override
-	ServiceResponse startServer(ComputeServer computeServer) {
-		try {
-			HttpApiClient client = new HttpApiClient()
-			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+        ServiceResponse startServer(ComputeServer computeServer) {
+                try {
+                        HttpApiClient client = new HttpApiClient()
+                        Map authConfig = plugin.getAuthConfig(computeServer.cloud)
 
-			return ProxmoxApiComputeUtil.startVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
-		} catch (e) {
-			log.error "Error performing start on VM: ${e}", e
-			return ServiceResponse.error("Error performing start on VM: ${e}")
-		}
-	}
+                        return ProxmoxApiComputeUtil.startVM(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
+                } catch (e) {
+                        log.error "Error performing start on VM: ${e}", e
+                        return ServiceResponse.error("Error performing start on VM: ${e}")
+                }
+        }
+
+        ServiceResponse convertServerToTemplate(ComputeServer computeServer) {
+                try {
+                        HttpApiClient client = new HttpApiClient()
+                        Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+
+                        ServiceResponse resp = ProxmoxApiComputeUtil.convertVMToTemplate(client, authConfig, computeServer.parentServer.name, computeServer.externalId)
+
+                        if(resp.success) {
+                                // Create VirtualImage record if one doesn't exist
+                                def imageConfig = [
+                                        account    : computeServer.account,
+                                        category   : "proxmox.image",
+                                        name       : computeServer.name,
+                                        code       : "proxmox.image.${computeServer.externalId}",
+                                        imageType  : ImageType.qcow2,
+                                        status     : 'Active',
+                                        externalId : computeServer.externalId.toString(),
+                                        refType    : 'ComputeZone',
+                                        refId      : "${computeServer.cloud.id}"
+                                ]
+
+                                VirtualImage virtImg = new VirtualImage(imageConfig)
+                                VirtualImageLocation virtLoc = new VirtualImageLocation([
+                                        virtualImage: virtImg,
+                                        code        : "proxmox.ve.image.${computeServer.cloud.id}.${computeServer.externalId}",
+                                        internalId  : computeServer.externalId.toString(),
+                                        externalId  : computeServer.externalId.toString(),
+                                        imageName   : computeServer.name,
+                                        imageRegion : computeServer.cloud.regionCode,
+                                        isPublic    : false,
+                                        refType     : 'ComputeZone',
+                                        refId       : computeServer.cloud.id
+                                ])
+                                virtImg.imageLocations = [virtLoc]
+                                context.async.virtualImage.create([virtImg], computeServer.cloud).blockingGet()
+                        }
+
+                        return resp
+                } catch(e) {
+                        log.error("Error converting VM to template: ${e.message}", e)
+                        return ServiceResponse.error("Error converting VM to template: ${e.message}")
+                }
+        }
 
 	/**
 	 * Returns the Morpheus Context for interacting with data stored in the Main Morpheus Application
