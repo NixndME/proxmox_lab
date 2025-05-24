@@ -147,34 +147,4 @@ class ProxmoxApiFirewallUtil {
         return rtn
     }
 
-    static ServiceResponse listClusterFirewallGroups(HttpApiClient client, Map authConfig) {
-        log.debug("listClusterFirewallGroups")
-        def rtn = new ServiceResponse(success:false)
-        try {
-            def tokenResp = getApiV2Token(authConfig)
-            if(!tokenResp.success) return tokenResp
-            def tokenCfg = tokenResp.data
-            def opts = new HttpApiClient.RequestOptions(
-                headers:[
-                    'Cookie':"PVEAuthCookie=${tokenCfg.token}",
-                    'CSRFPreventionToken': tokenCfg.csrfToken
-                ],
-                contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
-            )
-            String path = "${authConfig.v2basePath}/cluster/firewall/groups"
-            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, path, null, null, opts, 'GET')
-            if(results?.success) {
-                rtn.success = true
-                rtn.data = results.data?.data
-            } else {
-                rtn = ProxmoxApiUtil.validateApiResponse(results, "Failed to list firewall groups")
-            }
-        } catch(e) {
-            log.error("Error listing firewall groups: ${e.message}", e)
-            rtn.success = false
-            rtn.msg = "Error listing firewall groups: ${e.message}"
-        }
-        return rtn
-    }
 }
