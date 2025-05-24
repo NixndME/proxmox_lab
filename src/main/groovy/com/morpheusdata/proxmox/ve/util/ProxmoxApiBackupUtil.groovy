@@ -202,6 +202,44 @@ class ProxmoxApiBackupUtil {
         return rtn
     }
 
+    static ServiceResponse getTaskStatus(HttpApiClient client, Map authConfig, String nodeId, String taskId) {
+        log.debug("ProxmoxApiBackupUtil.getTaskStatus: nodeId=\${nodeId}, taskId=\${taskId}")
+        ServiceResponse tokenResponse = getApiV2Token(authConfig)
+        if(!tokenResponse.success) {
+            return tokenResponse
+        }
+        def tokenCfg = tokenResponse.data
+        def rtn = new ServiceResponse(success:false)
+        try {
+            def path = "nodes/\${nodeId}/tasks/\${taskId}/status"
+            HttpApiClient.RequestOptions opts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Cookie': "PVEAuthCookie=\${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+            )
+
+            log.debug("Fetching Proxmox task status from \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
+            def results = client.callJsonApi(authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'GET')
+            log.debug("Task status API response: \${results.toMap()}")
+
+            if(results?.success) {
+                rtn.success = true
+                rtn.data = results.data?.data ?: results.data
+            } else {
+                rtn.success = false
+                rtn.msg = "Failed to fetch task status: \${results.msg ?: results.content}"
+                log.error(rtn.msg)
+            }
+        } catch(Exception e) {
+            log.error("Exception during getTaskStatus: \${e.message}", e)
+            rtn.success = false
+            rtn.msg = "Exception getting task status: \${e.message}"
+        }
+        return rtn
+    }
+
     // Optional: Methods for getSnapshot and listSnapshots can be added here if needed later.
     // static ServiceResponse getSnapshot(HttpApiClient client, Map authConfig, String nodeId, String vmId, String snapshotName) { ... }
     // static ServiceResponse listSnapshots(HttpApiClient client, Map authConfig, String nodeId, String vmId) { ... }

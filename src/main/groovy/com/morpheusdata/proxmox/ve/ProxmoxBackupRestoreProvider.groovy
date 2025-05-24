@@ -52,9 +52,9 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
         ServiceResponse<BackupRestoreResponse> rtn = ServiceResponse.prepare(new BackupRestoreResponse(backupResult))
         HttpApiClient client = new HttpApiClient()
         try {
-            // TODO: Implement proper persistence of restore status, errors, and dates on BackupResult.
-            // Example: backupResult.restoreStatus = ...; backupResult.restoreError = ...; backupResult.restoreEndDate = new Date(); morpheusContext.async.backup.saveResult(backupResult).blockingGet();
-            // backupResult.status = BackupResult.Status.IN_PROGRESS // This is for backup status, not restore.
+            backupResult.restoreStartDate = new Date()
+            backupResult.restoreStatus = BackupResult.Status.IN_PROGRESS
+            morpheusContext.async.backup.saveResult(backupResult).blockingGet()
 
             def snapshotName = backupResult.snapshotId ?: backupResult.getConfigMap()?.snapshotId
             if (!snapshotName) {
@@ -83,21 +83,33 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
 
             if (rollbackResponse.success) {
                 log.info("Successfully initiated rollback of snapshot '${snapshotName}' in Proxmox. Task ID: ${rollbackResponse.data?.data}")
-                // TODO: Verify Proxmox behavior: Does VM need to be manually started after rollback? If so, implement server start.
-                // Example: plugin.getProvider(ProxmoxVeProvisionProvider.PROVISION_PROVIDER_CODE).startServer(server)
-                // TODO: If rollback is asynchronous, store task ID (rollbackResponse.data.data) on backupResult for polling in refreshRestore.
+                if(rollbackResponse.data?.data) {
+                    backupResult.setConfigProperty('restoreTaskId', rollbackResponse.data.data.toString())
+                }
+                backupResult.restoreStatus = BackupResult.Status.SUCCEEDED
+                backupResult.output = rollbackResponse.msg?.encodeAsBase64()
             } else {
                 log.error("Failed to rollback snapshot '${snapshotName}' in Proxmox: ${rollbackResponse.msg}")
-                rtn.setSuccess(false) // Ensure overall response reflects failure
+                backupResult.restoreStatus = BackupResult.Status.FAILED
+                backupResult.restoreError = rollbackResponse.msg
+                rtn.setSuccess(false)
                 rtn.setMsg(rollbackResponse.msg)
             }
 
         } catch (Exception e) {
             log.error("Error in executeRestore for Proxmox: ${e.message}", e)
+            backupResult.restoreStatus = BackupResult.Status.FAILED
+            backupResult.restoreError = e.message
             rtn.setSuccess(false)
             rtn.setMsg(e.message)
         } finally {
-            // TODO: Ensure restore status (success/failure), error message, and duration are saved on backupResult (see TODO at start of try block).
+            backupResult.restoreEndDate = new Date()
+            if(backupResult.restoreStartDate) {
+                def start = backupResult.restoreStartDate
+                def end = backupResult.restoreEndDate
+                backupResult.restoreDurationMillis = end.time - start.time
+            }
+            morpheusContext.async.backup.saveResult(backupResult).blockingGet()
             rtn.data.backupResult = backupResult
             client?.shutdownClient()
         }
@@ -116,7 +128,49 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
     // Legacy internal refresh method
     ServiceResponse<BackupRestoreResponse> refreshRestore(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
         log.debug("ProxmoxBackupRestoreProvider.refreshRestore for backupResult: ${backupResult.id}")
-        // TODO: Implement if Proxmox snapshot rollback is asynchronous.
+        String taskId = backupResult.getConfigMap()?.restoreTaskId
+        if(!taskId) {
+            return ServiceResponse.success(new BackupRestoreResponse(backupResult))
+        }
+
+        HttpApiClient client = new HttpApiClient()
+        try {
+            Cloud cloud = morpheusContext.services.cloud.get(server.cloud.id).blockingGet()
+            def authConfig = plugin.getAuthConfig(cloud)
+
+            String proxmoxNode = server.parentServer?.name ?: server.parentServer?.externalId
+            if(!proxmoxNode && server.parentServerId) {
+                ComputeServer parentSrv = morpheusContext.services.computeServer.get(server.parentServerId).blockingGet()
+                proxmoxNode = parentSrv?.name ?: parentSrv?.externalId
+            }
+            if(!proxmoxNode) {
+                proxmoxNode = server.getConfigProperty('proxmoxNode') ?: backupResult.getConfigMap()?.proxmoxNode
+            }
+            ServiceResponse taskStatus = ProxmoxApiBackupUtil.getTaskStatus(client, authConfig, proxmoxNode, taskId)
+            if(taskStatus.success) {
+                def statusData = taskStatus.data
+                if(statusData?.status == 'stopped') {
+                    if(statusData.exitstatus?.toString()?.toLowerCase() == 'ok') {
+                        backupResult.restoreStatus = BackupResult.Status.SUCCEEDED
+                    } else if(statusData.exitstatus) {
+                        backupResult.restoreStatus = BackupResult.Status.FAILED
+                        backupResult.restoreError = statusData.exitstatus.toString()
+                    }
+                } else {
+                    backupResult.restoreStatus = BackupResult.Status.IN_PROGRESS
+                }
+            } else {
+                backupResult.restoreStatus = BackupResult.Status.FAILED
+                backupResult.restoreError = taskStatus.msg
+            }
+        } catch(Exception e) {
+            log.error("Error refreshing restore status for Proxmox: ${e.message}", e)
+            backupResult.restoreStatus = BackupResult.Status.FAILED
+            backupResult.restoreError = e.message
+        } finally {
+            morpheusContext.async.backup.saveResult(backupResult).blockingGet()
+            client?.shutdownClient()
+        }
         return ServiceResponse.success(new BackupRestoreResponse(backupResult))
     }
 
@@ -131,6 +185,31 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
     // Legacy internal cleanup method
     ServiceResponse cleanupRestore(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
         log.debug("ProxmoxBackupRestoreProvider.cleanupRestore for backupResult: ${backupResult.id}")
+        HttpApiClient client = new HttpApiClient()
+        try {
+            String snapshotName = backupResult.snapshotId ?: backupResult.getConfigMap()?.snapshotId
+            if(!snapshotName) {
+                return ServiceResponse.success()
+            }
+            Cloud cloud = morpheusContext.services.cloud.get(server.cloud.id).blockingGet()
+            def authConfig = plugin.getAuthConfig(cloud)
+            String proxmoxNode = server.parentServer?.name ?: server.parentServer?.externalId
+            if(!proxmoxNode && server.parentServerId) {
+                ComputeServer parentSrv = morpheusContext.services.computeServer.get(server.parentServerId).blockingGet()
+                proxmoxNode = parentSrv?.name ?: parentSrv?.externalId
+            }
+            if(!proxmoxNode) {
+                proxmoxNode = server.getConfigProperty('proxmoxNode') ?: backupResult.getConfigMap()?.proxmoxNode
+            }
+            ServiceResponse delResp = ProxmoxApiBackupUtil.deleteSnapshot(client, authConfig, proxmoxNode, server.externalId, snapshotName)
+            if(!delResp.success) {
+                log.warn("Failed to delete snapshot '${snapshotName}' during cleanup: ${delResp.msg}")
+            }
+        } catch(Exception e) {
+            log.error("Error during cleanupRestore for Proxmox: ${e.message}", e)
+        } finally {
+            client?.shutdownClient()
+        }
         return ServiceResponse.success()
     }
 
