@@ -18,6 +18,7 @@ package com.morpheusdata.proxmox.ve
 import com.morpheusdata.core.Plugin
 import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.AccountCredential
+import com.morpheusdata.proxmox.ve.ProxmoxSecurityGroupProvider
 import groovy.util.logging.Slf4j
 
 @Slf4j
@@ -42,6 +43,7 @@ class ProxmoxVePlugin extends Plugin {
         def networkProvider = new ProxmoxNetworkProvider(this, this.morpheus)
         this.registerProvider(networkProvider)
         networkProviderCode = networkProvider.code
+        this.registerProvider(new ProxmoxSecurityGroupProvider(this, this.morpheus))
     }
     
     def ProxmoxNetworkProvider getNetworkProvider() {
