@@ -951,4 +951,462 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 			client?.shutdownClient()
 		}
 	}
+
+	ServiceResponse listVMSnapshots(ComputeServer server) {
+		log.info("ProxmoxVeCloudProvider.listVMSnapshots called for server: ${server?.id} (${server?.name})")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			log.info("Attempting to list snapshots for VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.listSnapshots(client, authConfig, nodeName, vmId)
+
+			if (response.success) {
+				log.info("Successfully listed snapshots for VM ${vmId} on node ${nodeName}.")
+			} else {
+				log.error("Failed to list snapshots for VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in listVMSnapshots for VM ${server?.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error listing snapshots for server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	ServiceResponse createVMSnapshot(ComputeServer server, String snapshotName, String description) {
+		log.info("ProxmoxVeCloudProvider.createVMSnapshot called for server: ${server?.id} (${server?.name}), snapshotName: ${snapshotName}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (snapshotName == null || snapshotName.trim().isEmpty()) {
+				return ServiceResponse.error("Snapshot name cannot be empty.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+			String effectiveDescription = description ?: "" // Ensure description is not null
+
+			log.info("Attempting to create snapshot '${snapshotName}' for VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.createSnapshot(client, authConfig, nodeName, vmId, snapshotName, effectiveDescription)
+
+			if (response.success) {
+				log.info("Successfully initiated snapshot creation '${snapshotName}' for VM ${vmId} on node ${nodeName}. Task ID: ${response.data?.taskId}")
+			} else {
+				log.error("Failed to create snapshot '${snapshotName}' for VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in createVMSnapshot for VM ${server?.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error creating snapshot for server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	ServiceResponse deleteVMSnapshot(ComputeServer server, String snapshotName) {
+		log.info("ProxmoxVeCloudProvider.deleteVMSnapshot called for server: ${server?.id} (${server?.name}), snapshotName: ${snapshotName}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (snapshotName == null || snapshotName.trim().isEmpty()) {
+				return ServiceResponse.error("Snapshot name cannot be empty.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			log.info("Attempting to delete snapshot '${snapshotName}' for VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.deleteSnapshot(client, authConfig, nodeName, vmId, snapshotName)
+
+			if (response.success) {
+				log.info("Successfully initiated snapshot deletion '${snapshotName}' for VM ${vmId} on node ${nodeName}. Task ID: ${response.data?.taskId}")
+			} else {
+				log.error("Failed to delete snapshot '${snapshotName}' for VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in deleteVMSnapshot for VM ${server?.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error deleting snapshot for server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	ServiceResponse revertToVMSnapshot(ComputeServer server, String snapshotName) {
+		log.info("ProxmoxVeCloudProvider.revertToVMSnapshot called for server: ${server?.id} (${server?.name}), snapshotName: ${snapshotName}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (snapshotName == null || snapshotName.trim().isEmpty()) {
+				return ServiceResponse.error("Snapshot name cannot be empty.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			log.info("Attempting to revert to snapshot '${snapshotName}' for VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.rollbackSnapshot(client, authConfig, nodeName, vmId, snapshotName)
+
+			if (response.success) {
+				log.info("Successfully initiated revert to snapshot '${snapshotName}' for VM ${vmId} on node ${nodeName}. Task ID: ${response.data?.taskId}")
+			} else {
+				log.error("Failed to revert to snapshot '${snapshotName}' for VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in revertToVMSnapshot for VM ${server?.externalId}: ${e.message}", e)
+			return ServiceResponse.error("Error reverting to snapshot for server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	/**
+	 * Removes a disk from the specified ComputeServer (VM).
+	 *
+	 * @param server The ComputeServer (VM) to remove the disk from.
+	 * @param diskName The name of the disk to remove (e.g., 'scsi1', 'virtio0').
+	 * @return ServiceResponse indicating success or failure, and potentially a taskId from Proxmox.
+	 */
+	ServiceResponse removeDiskFromServer(ComputeServer server, String diskName) {
+		log.info("ProxmoxVeCloudProvider.removeDiskFromServer called for server: ${server?.id} (${server?.name}), diskName: ${diskName}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			// Basic input validation
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (diskName == null || diskName.trim().isEmpty()) {
+				return ServiceResponse.error("Disk name cannot be empty.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			// Fallback for nodeName if parentServer is not set or nodeName is not directly available
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null or empty for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				// Use a temporary client for this internal lookup.
+				// Note: The main 'client' will be used for the actual removeVMDisk operation.
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					// It's important that listVMs doesn't require the client to be pre-authenticated with a specific token,
+					// as getApiV2Token is called within listVMs and ProxmoxApiComputeUtil methods.
+					def vmsListResponse = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)
+					if (!vmsListResponse.success) {
+						log.error("Failed to retrieve VM list to find nodeName for VM ${vmId}: ${vmsListResponse.msg}")
+						return ServiceResponse.error("Could not determine node for VM ${vmId}: Failed to list VMs. ${vmsListResponse.msg}")
+					}
+					def foundVm = vmsListResponse.data?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						log.error("Could not find node for VM ID ${vmId} via Proxmox API listVMs.")
+						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			log.info("Attempting to remove disk '${diskName}' from VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.removeVMDisk(client, authConfig, nodeName, vmId, diskName)
+
+			if (response.success) {
+				log.info("Successfully initiated remove disk '${diskName}' for VM ${vmId} on node ${nodeName}. Task ID: ${response.data?.taskId}")
+			} else {
+				log.error("Failed to remove disk '${diskName}' for VM ${vmId} on node ${nodeName}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in removeDiskFromServer for VM ${server?.externalId}, disk ${diskName}: ${e.message}", e)
+			return ServiceResponse.error("Error removing disk ${diskName} from server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	/**
+	 * Removes a network interface from the specified ComputeServer (VM).
+	 *
+	 * @param server The ComputeServer (VM) to remove the network interface from.
+	 * @param interfaceName The name of the network interface to remove (e.g., 'net0', 'net1').
+	 * @return ServiceResponse indicating success or failure, and potentially a taskId from Proxmox.
+	 */
+	ServiceResponse removeNetworkInterfaceFromServer(ComputeServer server, String interfaceName) {
+		log.info("ProxmoxVeCloudProvider.removeNetworkInterfaceFromServer called for server: ${server?.id} (${server?.name}), interfaceName: ${interfaceName}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			// Basic input validation
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (interfaceName == null || interfaceName.trim().isEmpty()) {
+				return ServiceResponse.error("Network interface name (e.g., net0) cannot be empty.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			// Fallback for nodeName
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null or empty for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsListResponse = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)
+					if (!vmsListResponse.success) {
+						log.error("Failed to retrieve VM list to find nodeName for VM ${vmId}: ${vmsListResponse.msg}")
+						return ServiceResponse.error("Could not determine node for VM ${vmId}: Failed to list VMs. ${vmsListResponse.msg}")
+					}
+					def foundVm = vmsListResponse.data?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						log.error("Could not find node for VM ID ${vmId} via Proxmox API listVMs.")
+						return ServiceResponse.error("Missing nodeName for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			log.info("Attempting to remove network interface '${interfaceName}' from VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.removeVMNetworkInterface(client, authConfig, nodeName, vmId, interfaceName)
+
+			if (response.success) {
+				log.info("Successfully initiated removal of network interface '${interfaceName}' for VM ${vmId}. Task ID: ${response.data?.taskId}")
+			} else {
+				log.error("Failed to remove network interface '${interfaceName}' for VM ${vmId}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in removeNetworkInterfaceFromServer for VM ${server?.externalId}, interface ${interfaceName}: ${e.message}", e)
+			return ServiceResponse.error("Error removing network interface ${interfaceName} from server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
+
+	/**
+	 * Updates an existing network interface on the specified ComputeServer (VM).
+	 *
+	 * @param server The ComputeServer (VM) to update the network interface on.
+	 * @param interfaceName The name of the network interface to update (e.g., 'net0').
+	 * @param bridgeName The new bridge name for the interface (e.g., 'vmbr1').
+	 * @param model The new model for the interface (e.g., 'virtio').
+	 * @param vlanTag (Optional) The new VLAN ID. Null or empty means no VLAN tag or keep existing if Proxmox defaults.
+	 * @param firewallEnabled (Optional) Boolean to enable/disable Proxmox firewall. Null means no change to firewall setting.
+	 * @return ServiceResponse indicating success or failure, and potentially a taskId from Proxmox.
+	 */
+	ServiceResponse updateNetworkInterfaceOnServer(ComputeServer server, String interfaceName, String bridgeName, String model, String vlanTag, Boolean firewallEnabled) {
+		log.info("ProxmoxVeCloudProvider.updateNetworkInterfaceOnServer called for server: ${server?.id} (${server?.name}), interface: ${interfaceName}, bridge: ${bridgeName}, model: ${model}, vlan: ${vlanTag}, firewall: ${firewallEnabled}")
+		HttpApiClient client = new HttpApiClient()
+		try {
+			// Basic input validation
+			if (server == null) {
+				return ServiceResponse.error("ComputeServer cannot be null.")
+			}
+			if (server.cloud == null) {
+				return ServiceResponse.error("ComputeServer cloud information is missing.")
+			}
+			if (interfaceName == null || interfaceName.trim().isEmpty()) {
+				return ServiceResponse.error("Network interface name (e.g., net0) cannot be empty.")
+			}
+			if (bridgeName == null || bridgeName.trim().isEmpty()) {
+				return ServiceResponse.error("Bridge name cannot be empty.")
+			}
+			if (model == null || model.trim().isEmpty()) {
+				return ServiceResponse.error("Network card model cannot be empty.")
+			}
+			// Known models validation (optional, Proxmox will validate anyway)
+			List<String> knownModels = ['e1000', 'e1000-82545em', 'virtio', 'rtl8139', 'vmxnet3', 'i82551', 'i82557b', 'i82559er']
+			if (!knownModels.contains(model.toLowerCase())) {
+				log.warn("Potentially unknown network model specified: ${model}. Proxmox will validate.")
+			}
+
+			Map authConfig = plugin.getAuthConfig(server.cloud)
+			String vmId = server.externalId
+			String nodeName = server.parentServer?.name
+
+			if (vmId == null || vmId.isEmpty()) {
+				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+			}
+
+			// Fallback for nodeName
+			if (nodeName == null || nodeName.isEmpty()) {
+				log.warn("parentServer.name is null or empty for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+				HttpApiClient tempClient = new HttpApiClient()
+				try {
+					def vmsListResponse = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)
+					if (!vmsListResponse.success) {
+						log.error("Failed to retrieve VM list to find nodeName for VM ${vmId}: ${vmsListResponse.msg}")
+						return ServiceResponse.error("Could not determine node for VM ${vmId}: Failed to list VMs. ${vmsListResponse.msg}")
+					}
+					def foundVm = vmsListResponse.data?.find { it.vmid.toString() == vmId }
+					if (foundVm?.node) {
+						nodeName = foundVm.node
+						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+					} else {
+						log.error("Could not find node for VM ID ${vmId} via Proxmox API listVMs.")
+						return ServiceResponse.error("Missing nodeName for server ${server.name} and could not find it via API.")
+					}
+				} finally {
+					tempClient?.shutdownClient()
+				}
+			}
+
+			log.info("Attempting to update network interface '${interfaceName}' on VM ${vmId} on node ${nodeName}")
+			ServiceResponse response = ProxmoxApiComputeUtil.updateVMNetworkInterface(client, authConfig, nodeName, vmId, interfaceName, bridgeName.trim(), model.trim(), vlanTag, firewallEnabled)
+
+			if (response.success) {
+				log.info("Successfully initiated update of network interface '${interfaceName}' for VM ${vmId}. Task ID: ${response.data?.taskId}")
+			} else {
+				log.error("Failed to update network interface '${interfaceName}' for VM ${vmId}: ${response.msg}")
+			}
+			return response
+
+		} catch (e) {
+			log.error("Error in updateNetworkInterfaceOnServer for VM ${server?.externalId}, interface ${interfaceName}: ${e.message}", e)
+			return ServiceResponse.error("Error updating network interface ${interfaceName} on server ${server?.name}: ${e.message}")
+		} finally {
+			client?.shutdownClient()
+		}
+	}
 }
