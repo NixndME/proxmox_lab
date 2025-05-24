@@ -42,7 +42,7 @@ class ProxmoxVeOptionSourceProvider extends AbstractOptionSourceProvider {
 
     @Override
     List<String> getMethodNames() {
-        return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode'])
+        return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode', 'proxmoxVeDestinationNode'])
     }
 
 
@@ -67,6 +67,16 @@ class ProxmoxVeOptionSourceProvider extends AbstractOptionSourceProvider {
 
         log.error("FOUND ${options.size()} ComputeServer Nodes...")
         return options
+    }
+
+    /**
+     * Option source that lists available Proxmox nodes for VM migration.
+     * Currently returns the same data as {@link #proxmoxVeNode(java.lang.Object)}.
+     * Additional filtering (e.g. removing the source node) can be handled by the caller.
+     */
+    def proxmoxVeDestinationNode(args) {
+        log.debug "proxmoxVeDestinationNode: ${args}"
+        return proxmoxVeNode(args)
     }
 
 

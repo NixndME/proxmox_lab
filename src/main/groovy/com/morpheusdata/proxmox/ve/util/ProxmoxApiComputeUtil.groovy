@@ -143,6 +143,58 @@ class ProxmoxApiComputeUtil {
         return actionVMStatus(client, authConfig, nodeId, vmId, "reset")
     }
 
+    /**
+     * Initiates a migration of a VM to another node.
+     * @param client http client to use for the request
+     * @param authConfig authentication configuration
+     * @param nodeId the source node of the VM
+     * @param vmId id of the VM to migrate
+     * @param targetNode the destination node
+     * @param online whether to perform a live migration (true) or offline (false)
+     * @return ServiceResponse indicating success or failure
+     */
+    static ServiceResponse migrateVm(HttpApiClient client, Map authConfig, String nodeId, String vmId, String targetNode, Boolean online = true) {
+        log.info("Migrating VM ${vmId} from node ${nodeId} to ${targetNode}, live=${online}")
+        try {
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if(!tokenCfgResponse.success)
+                return tokenCfgResponse
+            def tokenCfg = tokenCfgResponse.data
+
+            def body = [target: targetNode]
+            if(online != null)
+                body.online = online ? 1 : 0
+
+            def opts = [
+                headers: [
+                    'Content-Type'       : 'application/json',
+                    'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: body,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+            ]
+
+            String apiPath = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/migrate"
+            log.debug("VM migrate POST to ${authConfig.apiUrl}${apiPath} body ${body}")
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
+
+            if(results.success && results.data?.data) {
+                log.info("Successfully initiated migration of VM ${vmId} to node ${targetNode}. Task ID: ${results.data.data}")
+                return ServiceResponse.success("VM migration initiated", [taskId: results.data.data])
+            } else if(results.success) {
+                log.warn("VM migration API call reported success but no task ID returned for VM ${vmId}")
+                return ServiceResponse.success("VM migration initiated", results.data ?: [:])
+            } else {
+                return ProxmoxApiUtil.validateApiResponse(results, "Failed to migrate VM ${vmId} to node ${targetNode}")
+            }
+        } catch(e) {
+            log.error("Exception migrating VM ${vmId} to node ${targetNode}: ${e.message}", e)
+            return ServiceResponse.error("Exception migrating VM ${vmId} to node ${targetNode}: ${e.message}")
+        }
+    }
+
 
     static actionVMStatus(HttpApiClient client, Map authConfig, String nodeId, String vmId, String action) {
         log.info("Performing action '${action}' on VM ${vmId} on node ${nodeId}")

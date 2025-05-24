@@ -34,3 +34,15 @@ resource "option-type" "proxmox-nodes" {
   required = true
   optionSource = "proxmoxVeNode"
 }
+
+resource "option-type" "proxmox-migration-node" {
+  name = "destinationNode"
+  code = "proxmox.migrate.node"
+  fieldName = "destinationNode"
+  fieldContext = "config"
+  fieldLabel = "Destination Node"
+  type = "select"
+  displayOrder = 103
+  required = true
+  optionSource = "proxmoxVeDestinationNode"
+}
