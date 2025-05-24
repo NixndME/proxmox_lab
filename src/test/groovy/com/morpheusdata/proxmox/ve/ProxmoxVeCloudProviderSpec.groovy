@@ -98,9 +98,6 @@ class ProxmoxVeCloudProviderSpec extends Specification {
         response.success
         response.msg == "VM started successfully"
 
-        cleanup:
-        // ProxmoxApiComputeUtil.metaClass = null // Clean up metaClass changes if used
-        // GroovySystem.metaClassRegistry.removeMetaClass(ProxmoxApiComputeUtil.class)
     }
 
     def "startServer handles missing externalId"() {
