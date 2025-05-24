@@ -118,4 +118,353 @@ class ProxmoxApiComputeUtilSpec extends Specification {
 
     // Conceptual tests for addVMDisk/addVMNetworkInterface (index finding) might go here if refactored
     // Conceptual tests for requestVMConsole might go here
+
+    // Snapshot Management Tests
+    def "test listSnapshots success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        
+        // Groovy's metaClass programming to mock static method
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+
+        def snapshotList = [[name: "snap1", description: "Test Snapshot 1"], [name: "snap2", description: "Test Snapshot 2"]]
+        // callListApiV2 returns a ServiceResponse where the actual data is in response.data
+        def mockApiResponse = new ServiceResponse(success: true, data: snapshotList) 
+        // This mocks the callJsonApi *inside* callListApiV2, not listSnapshots directly calling callJsonApi
+        mockClient.callJsonApi(authConfig.apiUrl, "/api2/json/nodes/node1/qemu/100/snapshot", null, null, _ as HttpApiClient.RequestOptions, 'GET') >> mockApiResponse
+
+        when:
+        def response = ProxmoxApiComputeUtil.listSnapshots(mockClient, authConfig, "node1", "100")
+
+        then:
+        response.success
+        response.data.size() == 2
+        response.data[0].name == "snap1"
+        response.data[1].description == "Test Snapshot 2"
+        // Verification of callJsonApi happens implicitly via the setup of mockClient interaction above
+    }
+
+    def "test listSnapshots API error"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        
+        def mockApiResponse = new ServiceResponse(success: false, msg: "API Error")
+        mockClient.callJsonApi(authConfig.apiUrl, "/api2/json/nodes/node1/qemu/100/snapshot", null, null, _ as HttpApiClient.RequestOptions, 'GET') >> mockApiResponse
+
+        when:
+        def response = ProxmoxApiComputeUtil.listSnapshots(mockClient, authConfig, "node1", "100")
+
+        then:
+        !response.success
+        response.msg.contains("API Error")
+    }
+    
+    def "test createSnapshot success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:node1:000ABC:taskid:snapname:user@realm:"]) // Proxmox returns task ID in data.data
+        
+        when:
+        def response = ProxmoxApiComputeUtil.createSnapshot(mockClient, authConfig, "node1", "101", "new_snap", "A new snapshot")
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:node1:000ABC")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/node1/qemu/101/snapshot",
+            null,
+            null,
+            { it.body.snapname == "new_snap" && it.body.description == "A new snapshot" && it.headers['Cookie'] == "PVEAuthCookie=faketoken" },
+            'POST'
+        )
+    }
+
+    def "test createSnapshot API error"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+
+        def mockApiResponse = new ServiceResponse(success: false, msg: "Failed to create snapshot")
+        mockClient.callJsonApi(_, _, _, _, _, 'POST') >> mockApiResponse
+        
+        when:
+        def response = ProxmoxApiComputeUtil.createSnapshot(mockClient, authConfig, "node1", "101", "new_snap", "A new snapshot")
+
+        then:
+        !response.success
+        response.msg.contains("Failed to create snapshot")
+    }
+
+    def "test deleteSnapshot success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:node1:000DEF:taskid:snapname:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.deleteSnapshot(mockClient, authConfig, "node1", "102", "snap_to_delete")
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:node1:000DEF")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/node1/qemu/102/snapshot/snap_to_delete",
+            null,
+            null,
+            { it.headers['Cookie'] == "PVEAuthCookie=faketoken" },
+            'DELETE'
+        )
+    }
+
+    def "test rollbackSnapshot success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:node1:000GHI:taskid:snapname:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.rollbackSnapshot(mockClient, authConfig, "node1", "103", "snap_to_rollback")
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:node1:000GHI")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/node1/qemu/103/snapshot/snap_to_rollback/rollback",
+            null,
+            null,
+            { it.body == [:] && it.headers['Cookie'] == "PVEAuthCookie=faketoken" }, // Empty body for rollback
+            'POST'
+        )
+    }
+
+    // Teardown method to reset metaclass changes after each feature method
+    def cleanup() {
+        GroovySystem.metaClassRegistry.removeMetaClass(ProxmoxApiComputeUtil.class)
+    }
+
+
+    // removeVMDisk tests
+    def "test removeVMDisk success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:nodeX:taskXYZ:removeDisk:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.removeVMDisk(mockClient, authConfig, "nodeX", "105", "scsi1")
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:nodeX:taskXYZ")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/nodeX/qemu/105/config",
+            null,
+            null,
+            { it.body.delete == "scsi1" && it.headers['Cookie'] == "PVEAuthCookie=faketoken" },
+            'POST'
+        )
+    }
+
+    def "test removeVMDisk API error"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: false, msg: "Disk not found or other error")
+        mockClient.callJsonApi(_, _, _, _, _, 'POST') >> mockApiResponse
+
+        when:
+        def response = ProxmoxApiComputeUtil.removeVMDisk(mockClient, authConfig, "nodeX", "105", "scsi1")
+
+        then:
+        !response.success
+        response.msg.contains("Disk not found or other error")
+    }
+
+    // removeVMNetworkInterface tests
+    def "test removeVMNetworkInterface success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:nodeY:taskABC:removeNet:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.removeVMNetworkInterface(mockClient, authConfig, "nodeY", "106", "net0")
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:nodeY:taskABC")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/nodeY/qemu/106/config",
+            null,
+            null,
+            { it.body.delete == "net0" && it.headers['Cookie'] == "PVEAuthCookie=faketoken" },
+            'POST'
+        )
+    }
+
+    // updateVMNetworkInterface tests
+    def "test updateVMNetworkInterface success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:nodeZ:task123:updateNet:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.updateVMNetworkInterface(mockClient, authConfig, "nodeZ", "107", "net1", "vmbr1", "e1000", "200", true)
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:nodeZ:task123")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/nodeZ/qemu/107/config",
+            null,
+            null,
+            { it.body.net1 == "model=e1000,bridge=vmbr1,tag=200,firewall=1" && it.headers['Cookie'] == "PVEAuthCookie=faketoken" },
+            'POST'
+        )
+    }
+    
+    def "test updateVMNetworkInterface no vlan no firewall"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:nodeZ:task456:updateNet:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.updateVMNetworkInterface(mockClient, authConfig, "nodeZ", "108", "net0", "vmbr0", "virtio", null, false)
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:nodeZ:task456")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/nodeZ/qemu/108/config",
+            null,
+            null,
+            { it.body.net0 == "model=virtio,bridge=vmbr0,firewall=0" && it.headers['Cookie'] == "PVEAuthCookie=faketoken" },
+            'POST'
+        )
+    }
+
+    // resizeVMCompute tests
+    def "test resizeVMCompute only CPU and RAM"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:nodeA:task789:resize:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.resizeVMCompute(mockClient, authConfig, "nodeA", "109", 4L, 8192L * 1024L * 1024L) // 8GB RAM
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:nodeA:task789")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/nodeA/qemu/109/config",
+            null,
+            null,
+            { it.body.vcpus == 4L && it.body.memory == 8192L && !it.body.containsKey("net0") && it.headers['Cookie'] == "PVEAuthCookie=faketoken" },
+            'POST'
+        )
+    }
+
+     def "test resizeVMCompute only CPU"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:nodeB:task101:resize:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.resizeVMCompute(mockClient, authConfig, "nodeB", "110", 2L, null)
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:nodeB:task101")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/nodeB/qemu/110/config",
+            null,
+            null,
+            { it.body.vcpus == 2L && !it.body.containsKey("memory") && !it.body.containsKey("net0") },
+            'POST'
+        )
+    }
+
+    def "test resizeVMCompute only RAM"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: "UPID:nodeC:task112:resize:user@realm:"])
+
+        when:
+        def response = ProxmoxApiComputeUtil.resizeVMCompute(mockClient, authConfig, "nodeC", "111", null, 4096L * 1024L * 1024L) // 4GB
+
+        then:
+        response.success
+        response.data.taskId.contains("UPID:nodeC:task112")
+        1 * mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/nodeC/qemu/111/config",
+            null,
+            null,
+            { it.body.memory == 4096L && !it.body.containsKey("vcpus") && !it.body.containsKey("net0") },
+            'POST'
+        )
+    }
+
+    def "test resizeVMCompute no parameters"() {
+        given:
+        def mockClient = Mock(HttpApiClient) // Not expected to be called
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        // Token might not even be fetched if parameters are checked first
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+
+
+        when:
+        def response = ProxmoxApiComputeUtil.resizeVMCompute(mockClient, authConfig, "nodeD", "112", null, null)
+
+        then:
+        !response.success
+        response.msg.contains("No resize parameters (CPU or RAM) provided")
+        0 * mockClient.callJsonApi(_, _, _, _, _, _) // Ensure no API call is made
+    }
 }

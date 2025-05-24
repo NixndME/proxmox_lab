@@ -59,77 +59,98 @@ class ProxmoxApiComputeUtil {
 
 
     static resizeVMCompute(HttpApiClient client, Map authConfig, String node, String vmId, Long cpu, Long ram) {
-        log.debug("resizeVMCompute")
-        Long ramValue = ram / 1024 / 1024
+        log.info("Resizing VM ${vmId} on node ${node} to CPU: ${cpu}, RAM: ${ram} bytes")
+        Long ramValueMB = ram != null ? ram / 1024 / 1024 : null 
 
         try {
-            def tokenCfg = getApiV2Token(authConfig).data
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                // Propagate the error from getApiV2Token, which already includes details
+                return tokenCfgResponse 
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            def bodyPayload = [ vmid: vmId, node: node ]
+            if (cpu != null) bodyPayload.vcpus = cpu
+            if (ramValueMB != null) bodyPayload.memory = ramValueMB
+            
+            if (cpu == null && ramValueMB == null) {
+                String msg = "No resize parameters (CPU or RAM) provided for VM ${vmId} on node ${node}."
+                log.warn(msg)
+                return ServiceResponse.error(msg)
+            }
+
             def opts = [
                     headers  : [
                             'Content-Type'       : 'application/json',
-                            'Cookie'             : "PVEAuthCookie=$tokenCfg.token",
+                            'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
                             'CSRFPreventionToken': tokenCfg.csrfToken
                     ],
-                    body     : [
-                            vmid  : vmId,
-                            node  : node,
-                            vcpus : cpu,
-                            memory: ramValue,
-                            net0  : "bridge=vmbr0,model=e1000e"
-                    ],
+                    body     : bodyPayload,
                     contentType: ContentType.APPLICATION_JSON,
                     ignoreSSL: true
             ]
 
-            log.debug("Setting VM Compute Size $vmId on node $node...")
-            log.debug("POST path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config")
+            String apiPath = "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config"
+            log.debug("Setting VM Compute Size for VM ${vmId} on node ${node}. Path: ${authConfig.apiUrl}${apiPath}. Payload: ${bodyPayload}")
 
-            def results = client.callJsonApi(
-                    (String) authConfig.apiUrl,
-                    "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config",
-                    null, null,
-                    new HttpApiClient.RequestOptions(opts),
-                    'POST'
-            )
+            def results = client.callJsonApi(authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
 
-            return results
+            if (results.success && results.data?.data) { 
+                log.info("Successfully initiated resize for VM ${vmId} on node ${node}. Task ID: ${results.data.data}")
+                return ServiceResponse.success("VM resize initiated for ${vmId}. Task ID: ${results.data.data}", [taskId: results.data.data])
+            } else if (results.success) { 
+                 log.warn("Resize VM ${vmId} API call on node ${node} was successful but no task ID found in results.data.data. Response (first 200 chars): ${results.content?.take(200)}")
+                 return ServiceResponse.success("VM resize for ${vmId} on node ${node} reported success but no task ID was returned.", results.data ?: [:])
+            } else {
+                String detail = results.msg ?: results.content ?: "No additional error detail provided by API."
+                if (detail.length() > 300) detail = detail.take(300) + "..."
+                String errorMsg = "Failed to resize VM ${vmId} on node ${node}. ErrorCode: ${results.errorCode ?: 'N/A'}. HTTP Status: ${results.statusCode ?: 'N/A'}. Detail: ${detail}"
+                log.error(errorMsg)
+                return ServiceResponse.error(errorMsg) // Return the more detailed error message
+            }
         } catch (e) {
-            log.error "Error Provisioning VM: ${e}", e
-            return ServiceResponse.error("Error Provisioning VM: ${e}")
+            log.error("Exception resizing VM ${vmId} on node ${node}: ${e.message}", e) // Log includes exception 'e' for stack trace
+            return ServiceResponse.error("Exception resizing VM ${vmId} on node ${node}: ${e.message}")
         }
     }
 
 
     static startVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
-        log.debug("startVM")
+        log.info("Starting VM ${vmId} on node ${nodeId}") // Changed from debug to info
         return actionVMStatus(client, authConfig, nodeId, vmId, "start")
     }
 
     static rebootVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
-        log.debug("rebootVM")
+        log.info("Rebooting VM ${vmId} on node ${nodeId}") // Changed from debug to info
         return actionVMStatus(client, authConfig, nodeId, vmId, "reboot")
     }
 
     static shutdownVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
-        log.debug("shutdownVM")
+        log.info("Shutting down VM ${vmId} on node ${nodeId}") // Changed from debug to info
         return actionVMStatus(client, authConfig, nodeId, vmId, "shutdown")
     }
 
     static stopVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
-        log.debug("stopVM")
+        log.info("Stopping VM ${vmId} on node ${nodeId}") // Changed from debug to info
         return actionVMStatus(client, authConfig, nodeId, vmId, "stop")
     }
 
     static resetVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
-        log.debug("resetVM")
+        log.info("Resetting VM ${vmId} on node ${nodeId}") // Changed from debug to info
         return actionVMStatus(client, authConfig, nodeId, vmId, "reset")
     }
 
 
     static actionVMStatus(HttpApiClient client, Map authConfig, String nodeId, String vmId, String action) {
-
+        log.info("Performing action '${action}' on VM ${vmId} on node ${nodeId}")
         try {
-            def tokenCfg = getApiV2Token(authConfig).data
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                // Propagate the error from getApiV2Token, which already includes details
+                return tokenCfgResponse 
+            }
+            def tokenCfg = tokenCfgResponse.data
             def opts = [
                     headers  : [
                             'Content-Type'       : 'application/json',
@@ -145,26 +166,41 @@ class ProxmoxApiComputeUtil {
             ]
 
             log.debug("Post path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action/")
-            def results = client.callJsonApi(
-                    (String) authConfig.apiUrl,
-                    "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action/",
-                    null, null,
-                    new HttpApiClient.RequestOptions(opts),
-                    'POST'
-            )
+            String apiPath = "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action/"
+            log.debug("Action VM status POST path: ${authConfig.apiUrl}${apiPath}")
+            String apiPath = "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action" 
+            log.debug("Action VM status POST path for action '${action}' on VM ${vmId}, node ${nodeId}: ${authConfig.apiUrl}${apiPath}")
+            def results = client.callJsonApi(authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
 
-            return results
+            if (results.success && results.data?.data) { 
+                log.info("Successfully initiated action '${action}' for VM ${vmId} on node ${nodeId}. Task ID: ${results.data.data}")
+                return ServiceResponse.success("Action '${action}' initiated for VM ${vmId}. Task ID: ${results.data.data}", [taskId: results.data.data])
+            } else if (results.success) { 
+                log.warn("Action '${action}' for VM ${vmId} on node ${nodeId} was successful but no task ID found in results.data.data. Response (first 200 chars): ${results.content?.take(200)}")
+                return ServiceResponse.success("Action '${action}' for VM ${vmId} on node ${nodeId} reported success but no task ID was returned.", results.data ?: [:])
+            } else {
+                String detail = results.msg ?: results.content ?: "No additional error detail provided by API."
+                if (detail.length() > 300) detail = detail.take(300) + "..."
+                String errorMsg = "Failed to perform action '${action}' on VM ${vmId} on node ${nodeId}. ErrorCode: ${results.errorCode ?: 'N/A'}. HTTP Status: ${results.statusCode ?: 'N/A'}. Detail: ${detail}"
+                log.error(errorMsg)
+                return ServiceResponse.error(errorMsg)
+            }
         } catch (e) {
-            log.error "Error performing $action on VM: ${e}", e
-            return ServiceResponse.error("Error performing $action on VM: ${e}")
+            log.error("Exception performing action '${action}' on VM ${vmId} on node ${nodeId}: ${e.message}", e)
+            return ServiceResponse.error("Exception performing action '${action}' on VM ${vmId} on node ${nodeId}: ${e.message}")
         }
     }
 
 
     static destroyVM(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
-        log.debug("destroyVM")
+        log.info("Destroying VM ${vmId} on node ${nodeId}")
         try {
-            def tokenCfg = getApiV2Token(authConfig).data
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                // Propagate the error from getApiV2Token, which already includes details
+                return tokenCfgResponse 
+            }
+            def tokenCfg = tokenCfgResponse.data
             def opts = [
                     headers  : [
                             'Content-Type'       : 'application/json',
@@ -198,15 +234,24 @@ class ProxmoxApiComputeUtil {
 
 
     static createImageTemplate(HttpApiClient client, Map authConfig, String imageName, String nodeId, int cpu, Long ram, String sourceUri = null) {
-        log.debug("createImage: $imageName")
-
-        def rtn = new ServiceResponse(success: true)
-        def nextId = callListApiV2(client, "cluster/nextid", authConfig).data
-        log.debug("Next VM Id is: $nextId")
+        log.info("Creating image template '${imageName}' on node ${nodeId} with cpu: ${cpu}, ram: ${ram}")
+        ServiceResponse nextIdResponse = callListApiV2(client, "cluster/nextid", authConfig)
+        if (!nextIdResponse.success || nextIdResponse.data == null) {
+            log.error("Failed to get next VM ID for image template ${imageName}: ${nextIdResponse.msg}")
+            return ServiceResponse.error("Failed to get next VM ID for image template ${imageName}: ${nextIdResponse.msg}")
+        }
+        def nextId = nextIdResponse.data.toString() // Ensure it's a string
+        log.debug("Next VM Id for image template ${imageName} is: $nextId")
+        def rtn = new ServiceResponse(success: false) // Default to success: false
 
         try {
-            def tokenCfg = getApiV2Token(authConfig).data
-            rtn.data = []
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return tokenCfgResponse // Propagate error from getApiV2Token
+            }
+            def tokenCfg = tokenCfgResponse.data
+            
+            rtn.data = [:] // Initialize data as a map
             def opts = [
                     headers  : [
                             'Content-Type'       : 'application/json',
@@ -233,18 +278,31 @@ class ProxmoxApiComputeUtil {
                     'POST'
             )
 
-            def resultData = new JsonSlurper().parseText(results.content)
-            if (results?.success && !results?.hasErrors()) {
-                rtn.success = true
-                rtn.data = resultData
-                rtn.data.templateId = nextId
-            } else {
-                rtn.msg = "Template create failed: $results.data $results $results.errorCode $results.content"
-                rtn.success = false
+            if (results?.content) {
+                def resultData = new JsonSlurper().parseText(results.content) // resultData is likely the task ID string
+                if (results.success && resultData) { 
+                    rtn.success = true
+                    // Proxmox API for creating a VM/template returns the task ID as the direct data.
+                    rtn.data = [taskId: resultData, templateId: nextId] 
+                    log.info("Successfully initiated creation of image template ${imageName} (VMID ${nextId}). Task ID: ${resultData}")
+                } else {
+                    rtn.msg = results.msg ?: results.content ?: "Failed to create image template ${imageName} (VMID ${nextId}). ErrorCode: ${results.errorCode ?: 'N/A'}"
+                    log.error(rtn.msg)
+                    // rtn.success remains false
+                }
+            } else if (!results.success) { // No content and not successful
+                 rtn.msg = results.msg ?: "Failed to create image template ${imageName} (VMID ${nextId}) (no content). ErrorCode: ${results.errorCode ?: 'N/A'}"
+                 log.error(rtn.msg)
+                 // rtn.success remains false
+            } else { // Success but no content, which is unusual for a create operation that should return a task ID.
+                 rtn.msg = "Create image template response for ${imageName} (VMID ${nextId}) had no content but was marked success. Assuming failure as task ID is expected."
+                 log.warn(rtn.msg)
+                 // rtn.success remains false
             }
         } catch (e) {
-            log.error "Error Provisioning VM: ${e}", e
-            return ServiceResponse.error("Error Provisioning VM: ${e}")
+            log.error("Exception creating image template ${imageName} (VMID ${nextId}) on node ${nodeId}: ${e.message}", e)
+            // rtn.success is already false
+            rtn.msg = "Exception creating image template ${imageName} on node ${nodeId}: ${e.message}"
         }
         return rtn
     }
@@ -702,37 +760,63 @@ class ProxmoxApiComputeUtil {
     
     
     private static ServiceResponse callListApiV2(HttpApiClient client, String path, Map authConfig) {
-        log.debug("callListApiV2: path: ${path}")
-
-        def tokenCfg = getApiV2Token(authConfig).data
-        def rtn = new ServiceResponse(success: false)
+        log.debug("callListApiV2 for path: ${path}")
+        def rtn = new ServiceResponse(success: false) 
         try {
-            rtn.data = []
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                // Propagate the detailed error from getApiV2Token directly
+                return tokenCfgResponse 
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            // rtn.data can be initialized based on expected type, but Proxmox list APIs usually return an array.
+            // Defaulting to null and setting on success is also fine.
+            // For consistency, let's initialize to an empty list if we expect a list.
+            rtn.data = [] 
+
             def opts = new HttpApiClient.RequestOptions(
                     headers: [
                         'Content-Type': 'application/json',
-                        'Cookie': "PVEAuthCookie=$tokenCfg.token",
+                        'Cookie': "PVEAuthCookie=${tokenCfg.token}",
                         'CSRFPreventionToken': tokenCfg.csrfToken
                     ],
                     contentType: ContentType.APPLICATION_JSON,
                     ignoreSSL: true
             )
             def results = client.callJsonApi(authConfig.apiUrl, "${authConfig.v2basePath}/${path}", null, null, opts, 'GET')
-            def resultData = results.toMap().data.data
-            log.debug("callListApiV2 results: ${resultData}")
-            if(results?.success && !results?.hasErrors()) {
+            
+            // Proxmox specific: successful list operations usually have results.data.data as a list.
+            if(results?.success && results.data?.data != null) { 
                 rtn.success = true
-                rtn.data = resultData
-            } else {
-                if(!rtn.success) {
-                    rtn.msg = results.data + results.errors
-                    rtn.success = false
+                rtn.data = results.data.data 
+                log.debug("callListApiV2 successful for path ${path}. Number of records: ${rtn.data instanceof Collection ? rtn.data.size() : (rtn.data instanceof Map ? 1 : 'N/A')}")
+            } else if (results?.success && results.data?.data == null) {
+                // This case handles when Proxmox returns success (HTTP 200) but the "data" array is missing or null (e.g. empty list might be `{"data":[]}` or just `{"data":null}`)
+                // If results.data itself is the payload (e.g. a single object GET not in 'data' wrapper, or an empty list directly as results.data)
+                // This part of the logic is more for specific GETs of single objects if they were to use callListApiV2.
+                // For list APIs, Proxmox is fairly consistent with `{"data": [...]}`. So `results.data.data == null` on success might mean empty list.
+                // If `results.data` is `null` entirely, it's an issue. If `results.data` is an empty map/list, that's valid.
+                if (results.data == null) { // Success but the entire 'data' object from HttpApiClient is null.
+                    rtn.success = false // This is unexpected for a successful API call that should return data.
+                    rtn.msg = "API call to ${path} succeeded but returned no data object."
+                    log.warn(rtn.msg + " Raw content: ${results.content}")
+                } else { // results.data is not null, but results.data.data is. This means an empty list or non-standard response.
+                    rtn.success = true // Treat as success with empty list or the direct data.
+                    rtn.data = results.data // Could be an empty list `[]` or a map for a single item.
+                    log.warn("callListApiV2 for path ${path}: 'data.data' was null or not present. Using 'results.data' as payload. This might be an empty list or a single item. Payload: ${results.data}")
                 }
+            } else { // results.success is false
+                rtn.success = false
+                String detail = results.msg ?: results.content ?: "No additional error detail provided by API."
+                if (detail.length() > 300) detail = detail.take(300) + "..."
+                rtn.msg = "API call to ${path} failed. ErrorCode: ${results.errorCode ?: 'N/A'}. HTTP Status: ${results.statusCode ?: 'N/A'}. Detail: ${detail}"
+                log.warn("callListApiV2 failed for path ${path}: ${rtn.msg}")
             }
         } catch(e) {
-            log.error "Error in callListApiV2: ${e}", e
-            rtn.msg = "Error in callListApiV2: ${e}"
-            rtn.success = false
+            log.error("Exception in callListApiV2 for path ${path}: ${e.message}", e)
+            rtn.success = false // Ensure success is false on exception
+            rtn.msg = "Exception during API call to ${path}: ${e.message}"
         }
         return rtn
     }
@@ -741,10 +825,14 @@ class ProxmoxApiComputeUtil {
     private static ServiceResponse getApiV2Token(Map authConfig) {
         def path = "access/ticket"
         log.debug("getApiV2Token: path: ${path} for apiUrl: ${authConfig.apiUrl}") // Added apiUrl for context
-        HttpApiClient client = new HttpApiClient() // This client is local to this method
+        HttpApiClient client = new HttpApiClient() 
         def rtn = new ServiceResponse(success: false)
         try {
-
+            if (!authConfig.username || !authConfig.password) {
+                rtn.msg = "Username or password missing in authConfig for getApiV2Token."
+                log.error(rtn.msg)
+                return rtn // Early exit if essential auth info is missing
+            }
             def encUid = URLEncoder.encode((String) authConfig.username, "UTF-8")
             def encPwd = URLEncoder.encode((String) authConfig.password, "UTF-8")
             def bodyStr = "username=" + "$encUid" + "&password=$encPwd"
@@ -757,22 +845,27 @@ class ProxmoxApiComputeUtil {
             )
             def results = client.callJsonApi(authConfig.apiUrl,"${authConfig.v2basePath}/${path}", opts, 'POST')
 
-            log.debug("getApiV2Token API request results: ${results.toMap()}")
-            if(results?.success && !results?.hasErrors()) {
+            // Log the raw response content for debugging, especially for auth issues
+            log.debug("getApiV2Token API response raw content: ${results.content}")
+            log.debug("getApiV2Token API response success: ${results.success}, errors: ${results.errors}, msg: ${results.msg}, errorCode: ${results.errorCode}")
+
+
+            if(results?.success && results.data?.data) { // Check results.data.data for actual token info
                 rtn.success = true
                 def tokenData = results.data.data
                 rtn.data = [csrfToken: tokenData.CSRFPreventionToken, token: tokenData.ticket]
-
             } else {
                 rtn.success = false
-                rtn.msg = "Error retrieving token: $results.data"
-                log.error("Error retrieving token: $results.data")
+                rtn.msg = results.msg ?: results.content ?: "Failed to retrieve Proxmox API token. ErrorCode: ${results.errorCode ?: 'N/A'}"
+                log.error("Error retrieving Proxmox API token for ${authConfig.username}@${authConfig.apiUrl}: ${rtn.msg}")
             }
-            return rtn
         } catch(e) {
-            log.error "Error in getApiV2Token: ${e}", e
-            rtn.msg = "Error in getApiV2Token: ${e}"
+            log.error "Exception in getApiV2Token for ${authConfig.username}@${authConfig.apiUrl}: ${e.message}", e
             rtn.success = false
+            rtn.msg = "Exception retrieving Proxmox API token: ${e.message}"
+        } finally {
+            // Ensure the locally created client is shut down
+            client?.shutdownClient()
         }
         return rtn
     }
@@ -1116,5 +1209,388 @@ class ProxmoxApiComputeUtil {
             return ServiceResponse.error("Error requesting ${consoleType} console for VM ${vmId}: ${e.message}")
         }
         // No client.shutdownClient() here as the client is passed in and managed by the caller
+    }
+
+
+    static ServiceResponse listSnapshots(HttpApiClient client, Map authConfig, String nodeId, String vmId) {
+        log.debug("listSnapshots: vmId=${vmId}, nodeId=${nodeId}")
+        try {
+            String path = "nodes/${nodeId}/qemu/${vmId}/snapshot"
+            ServiceResponse response = callListApiV2(client, path, authConfig)
+            if (response.success) {
+                log.info("Successfully listed snapshots for VM ${vmId} on node ${nodeId}.")
+            } else {
+                log.error("Failed to list snapshots for VM ${vmId} on node ${nodeId}: ${response.msg} - ${response.content}")
+            }
+            return response
+        } catch (e) {
+            log.error("Error listing snapshots for VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error listing snapshots for VM ${vmId}: ${e.message}")
+        }
+    }
+
+    static ServiceResponse createSnapshot(HttpApiClient client, Map authConfig, String nodeId, String vmId, String snapshotName, String description) {
+        log.debug("createSnapshot: vmId=${vmId}, nodeId=${nodeId}, snapshotName=${snapshotName}")
+        try {
+            def tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in createSnapshot: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            String path = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/snapshot"
+            def requestBody = [
+                snapname: snapshotName,
+                description: description
+            ]
+
+            def opts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type': 'application/json',
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: requestBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Creating snapshot with POST to: ${authConfig.apiUrl}${path}")
+            log.debug("POST body: ${requestBody}")
+
+            def results = client.callJsonApi(
+                authConfig.apiUrl,
+                path,
+                null,
+                null,
+                opts,
+                'POST'
+            )
+
+            log.debug("Create snapshot API response: ${results.toMap()}")
+
+            if (results.success) {
+                log.info("Successfully created snapshot ${snapshotName} for VM ${vmId}. Task ID: ${results.data?.data}")
+                return ServiceResponse.success("Snapshot ${snapshotName} created successfully. Task ID: ${results.data?.data}", [taskId: results.data?.data])
+            } else {
+                log.error("Failed to create snapshot ${snapshotName} for VM ${vmId}: ${results.msg} - ${results.content}")
+                return ServiceResponse.error("Failed to create snapshot ${snapshotName}: ${results.msg ?: results.content}")
+            }
+        } catch (e) {
+            log.error("Error creating snapshot for VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error creating snapshot for VM ${vmId}: ${e.message}")
+        }
+    }
+
+    static ServiceResponse deleteSnapshot(HttpApiClient client, Map authConfig, String nodeId, String vmId, String snapshotName) {
+        log.debug("deleteSnapshot: vmId=${vmId}, nodeId=${nodeId}, snapshotName=${snapshotName}")
+        try {
+            def tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in deleteSnapshot: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            String path = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/snapshot/${snapshotName}"
+
+            def opts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type': 'application/json',
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                ignoreSSL: true
+            )
+
+            log.debug("Deleting snapshot with DELETE to: ${authConfig.apiUrl}${path}")
+
+            def results = client.callJsonApi(
+                authConfig.apiUrl,
+                path,
+                null,
+                null,
+                opts,
+                'DELETE'
+            )
+
+            log.debug("Delete snapshot API response: ${results.toMap()}")
+
+            if (results.success) {
+                log.info("Successfully deleted snapshot ${snapshotName} for VM ${vmId}. Task ID: ${results.data?.data}")
+                return ServiceResponse.success("Snapshot ${snapshotName} deleted successfully. Task ID: ${results.data?.data}", [taskId: results.data?.data])
+            } else {
+                log.error("Failed to delete snapshot ${snapshotName} for VM ${vmId}: ${results.msg} - ${results.content}")
+                return ServiceResponse.error("Failed to delete snapshot ${snapshotName}: ${results.msg ?: results.content}")
+            }
+        } catch (e) {
+            log.error("Error deleting snapshot for VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error deleting snapshot for VM ${vmId}: ${e.message}")
+        }
+    }
+
+    static ServiceResponse rollbackSnapshot(HttpApiClient client, Map authConfig, String nodeId, String vmId, String snapshotName) {
+        log.debug("rollbackSnapshot: vmId=${vmId}, nodeId=${nodeId}, snapshotName=${snapshotName}")
+        try {
+            def tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in rollbackSnapshot: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            String path = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/snapshot/${snapshotName}/rollback"
+            
+            def opts = new HttpApiClient.Request.RequestOptions( // Corrected typo here
+                headers: [
+                    'Content-Type': 'application/json',
+                    'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: [:], // Empty body for rollback
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Rolling back snapshot with POST to: ${authConfig.apiUrl}${path}")
+
+            def results = client.callJsonApi(
+                authConfig.apiUrl,
+                path,
+                null,
+                null,
+                opts,
+                'POST'
+            )
+
+            log.debug("Rollback snapshot API response: ${results.toMap()}")
+
+            if (results.success) {
+                log.info("Successfully rolled back to snapshot ${snapshotName} for VM ${vmId}. Task ID: ${results.data?.data}")
+                return ServiceResponse.success("Snapshot ${snapshotName} rolled back successfully. Task ID: ${results.data?.data}", [taskId: results.data?.data])
+            } else {
+                log.error("Failed to roll back to snapshot ${snapshotName} for VM ${vmId}: ${results.msg} - ${results.content}")
+                return ServiceResponse.error("Failed to roll back to snapshot ${snapshotName}: ${results.msg ?: results.content}")
+            }
+        } catch (e) {
+            log.error("Error rolling back snapshot for VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error rolling back snapshot for VM ${vmId}: ${e.message}")
+        }
+    }
+
+    static ServiceResponse removeVMDisk(HttpApiClient client, Map authConfig, String nodeName, String vmId, String diskName) {
+        log.debug("removeVMDisk: vmId=${vmId}, nodeName=${nodeName}, diskName=${diskName}")
+
+        try {
+            // 1. Authentication
+            def tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in removeVMDisk: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            // 2. Construct API Path
+            String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
+
+            // 3. Create Request Body
+            // Based on `qm set <vmid> --delete <key>`, the body should specify the disk to delete.
+            // The key is the disk name, e.g., "scsi0", "virtio1".
+            def requestBody = [
+                delete: diskName
+            ]
+
+            // 4. Prepare RequestOptions
+            def opts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type'       : 'application/json',
+                    'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: requestBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Removing disk '${diskName}' from VM ${vmId} on node ${nodeName} with POST to: ${authConfig.apiUrl}${configPath}")
+            log.debug("POST body: ${requestBody}")
+
+            // 5. Make the API Call
+            def results = client.callJsonApi(
+                authConfig.apiUrl,
+                configPath,
+                null, // queryParams
+                null, // body (using RequestOptions.body instead for POST)
+                opts,
+                'POST' // Using POST as per Proxmox API conventions for config changes
+            )
+
+            log.debug("Remove disk API response: ${results.toMap()}")
+
+            // 6. Handle Response
+            if (results.success) {
+                // Proxmox API for config update usually returns a task ID.
+                // A successful call (e.g., 200 OK) indicates the operation was accepted.
+                log.info("Successfully initiated remove disk operation for VM ${vmId}, disk ${diskName}. Task ID: ${results.data?.data}")
+                return ServiceResponse.success("Disk ${diskName} removal initiated successfully. Task ID: ${results.data?.data}", [taskId: results.data?.data])
+            } else {
+                // Handle cases like disk not found, or other API errors.
+                // Proxmox might return a specific error message or code.
+                String errorMessage = results.msg ?: results.content ?: "Unknown error"
+                log.error("Failed to remove disk ${diskName} from VM ${vmId}: ${errorMessage}")
+                // It might be useful to check results.errorCode or specific content if Proxmox has distinct errors for "disk not found"
+                return ServiceResponse.error("Failed to remove disk ${diskName}: ${errorMessage}")
+            }
+
+        } catch (e) {
+            log.error("Error removing disk ${diskName} from VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error removing disk ${diskName} from VM ${vmId}: ${e.message}")
+        }
+    }
+
+    static ServiceResponse removeVMNetworkInterface(HttpApiClient client, Map authConfig, String nodeName, String vmId, String interfaceName) {
+        log.debug("removeVMNetworkInterface: vmId=${vmId}, nodeName=${nodeName}, interfaceName=${interfaceName}")
+
+        try {
+            // 1. Authentication
+            def tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in removeVMNetworkInterface: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            // 2. Construct API Path
+            String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
+
+            // 3. Create Request Body
+            // To remove an interface, we pass its name (e.g., net0) to the 'delete' parameter.
+            def requestBody = [
+                delete: interfaceName
+            ]
+
+            // 4. Prepare RequestOptions
+            def opts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type'       : 'application/json',
+                    'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: requestBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Removing network interface '${interfaceName}' from VM ${vmId} on node ${nodeName} with POST to: ${authConfig.apiUrl}${configPath}")
+            log.debug("POST body: ${requestBody}")
+
+            // 5. Make the API Call
+            def results = client.callJsonApi(
+                authConfig.apiUrl,
+                configPath,
+                null, // queryParams
+                null, // body (using RequestOptions.body instead for POST)
+                opts,
+                'POST' // Using POST for config changes
+            )
+
+            log.debug("Remove network interface API response: ${results.toMap()}")
+
+            // 6. Handle Response
+            if (results.success) {
+                log.info("Successfully initiated remove network interface operation for VM ${vmId}, interface ${interfaceName}. Task ID: ${results.data?.data}")
+                return ServiceResponse.success("Network interface ${interfaceName} removal initiated successfully. Task ID: ${results.data?.data}", [taskId: results.data?.data])
+            } else {
+                String errorMessage = results.msg ?: results.content ?: "Unknown error"
+                log.error("Failed to remove network interface ${interfaceName} from VM ${vmId}: ${errorMessage}")
+                return ServiceResponse.error("Failed to remove network interface ${interfaceName}: ${errorMessage}")
+            }
+
+        } catch (e) {
+            log.error("Error removing network interface ${interfaceName} from VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error removing network interface ${interfaceName} from VM ${vmId}: ${e.message}")
+        }
+    }
+
+    static ServiceResponse updateVMNetworkInterface(HttpApiClient client, Map authConfig, String nodeName, String vmId, String interfaceName, String bridgeName, String model, String vlanTag, Boolean firewallEnabled) {
+        log.debug("updateVMNetworkInterface: vmId=${vmId}, nodeName=${nodeName}, interfaceName=${interfaceName}, bridgeName=${bridgeName}, model=${model}, vlanTag=${vlanTag}, firewallEnabled=${firewallEnabled}")
+
+        try {
+            // 1. Authentication
+            def tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in updateVMNetworkInterface: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            // 2. Construct API Path
+            String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
+
+            // 3. Construct Network Configuration String (similar to addVMNetworkInterface)
+            StringBuilder nicConfig = new StringBuilder()
+            // Proxmox expects model first for netX if MAC is not provided, or model=MAC.
+            // For updates, typically MAC is already set. We just provide the new configuration.
+            // If bridge is not specified, Proxmox usually keeps the existing one if only other params are changed.
+            // However, to be explicit and ensure the update is applied as intended, we specify all relevant parts.
+            nicConfig.append("model=${model},bridge=${bridgeName}") // Explicitly set model and bridge
+
+            if (vlanTag != null && !vlanTag.trim().isEmpty()) {
+                nicConfig.append(",tag=${vlanTag.trim()}")
+            }
+            // For firewall, Proxmox expects 'firewall=1' or 'firewall=0'.
+            // If firewallEnabled is null, we might not want to change the existing setting.
+            // However, the method signature implies we are setting it.
+            // If firewallEnabled is true, append firewall=1. If false, Proxmox might expect firewall=0 or for the param to be absent to disable.
+            // Let's assume Proxmox handles "firewall=0" to disable. If not, this might need adjustment.
+            // The pvesh set command for firewall seems to be `qm set 100 -net0 virtio,bridge=vmbr0,firewall=1` or `=0`
+            if (firewallEnabled != null) {
+                 nicConfig.append(",firewall=" + (firewallEnabled ? "1" : "0"))
+            }
+            
+            String nicConfigString = nicConfig.toString()
+
+            // 4. Create Request Body
+            // The body key is the interface name (e.g., net0), and value is the config string.
+            def requestBody = [
+                (interfaceName): nicConfigString
+            ]
+
+            // 5. Prepare RequestOptions
+            def opts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type'       : 'application/json',
+                    'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: requestBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: true
+            )
+
+            log.debug("Updating network interface '${interfaceName}' on VM ${vmId} on node ${nodeName} with POST to: ${authConfig.apiUrl}${configPath}")
+            log.debug("POST body: ${requestBody}")
+
+            // 6. Make the API Call
+            def results = client.callJsonApi(
+                authConfig.apiUrl,
+                configPath,
+                null, // queryParams
+                null, // body (using RequestOptions.body instead for POST)
+                opts,
+                'POST' // Using POST for config changes
+            )
+
+            log.debug("Update network interface API response: ${results.toMap()}")
+
+            // 7. Handle Response
+            if (results.success) {
+                log.info("Successfully initiated update for network interface ${interfaceName} on VM ${vmId}. Task ID: ${results.data?.data}")
+                return ServiceResponse.success("Network interface ${interfaceName} update initiated successfully. Task ID: ${results.data?.data}", [taskId: results.data?.data])
+            } else {
+                String errorMessage = results.msg ?: results.content ?: "Unknown error"
+                log.error("Failed to update network interface ${interfaceName} on VM ${vmId}: ${errorMessage}")
+                return ServiceResponse.error("Failed to update network interface ${interfaceName}: ${errorMessage}")
+            }
+
+        } catch (e) {
+            log.error("Error updating network interface ${interfaceName} on VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error updating network interface ${interfaceName} on VM ${vmId}: ${e.message}")
+        }
     }
 }

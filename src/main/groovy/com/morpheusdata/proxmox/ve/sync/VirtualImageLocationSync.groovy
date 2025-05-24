@@ -94,7 +94,7 @@ class VirtualImageLocationSync {
         Observable domainRecords = context.async.virtualImage.listIdentityProjections(new DataQuery().withFilters([
                 new DataFilter<String>("imageType", "in", allowedImageTypes),
                 new DataFilter<Collection<String>>("name", "in", names),
-                //new DataFilter<String>("category", "proxmox.image"),
+                new DataFilter<String>("category", "proxmox.image"),
                 new DataOrFilter(
                         new DataFilter<Boolean>("systemImage", false),
                         new DataOrFilter(
@@ -269,10 +269,10 @@ class VirtualImageLocationSync {
                 code       : "proxmox.image.${cloudItem.vmid}",
                 imageType  : ImageType.qcow2,
                 status     : 'Active',
-                minDisk    : cloudItem.maxdisk,
-                minRam     : cloudItem.minRam,
+                minDisk    : cloudItem.maxdisk ?: 0L, // Ensure it defaults if null
+                minRam     : cloudItem.maxmemory ?: 0L, // map from maxmemory, ensure default
                 //isPublic   : false,
-                externalId : cloudItem.vmid,
+                externalId : cloudItem.vmid.toString(), // Ensure it's a string
                 //imageRegion: regionCode,
                 //systemImage: false,
                 refType     : 'ComputeZone',
