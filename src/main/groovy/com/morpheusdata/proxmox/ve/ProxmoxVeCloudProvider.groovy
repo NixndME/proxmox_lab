@@ -24,6 +24,7 @@ import com.morpheusdata.model.OptionType
 import com.morpheusdata.model.PlatformType
 import com.morpheusdata.model.StorageControllerType
 import com.morpheusdata.model.StorageVolumeType
+import com.morpheusdata.model.projection.ComputeServerIdentityProjection
 import com.morpheusdata.request.ValidateCloudRequest
 import com.morpheusdata.response.ServiceResponse
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
@@ -1335,10 +1336,10 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 * @param firewallEnabled (Optional) Boolean to enable/disable Proxmox firewall. Null means no change to firewall setting.
 	 * @return ServiceResponse indicating success or failure, and potentially a taskId from Proxmox.
 	 */
-	ServiceResponse updateNetworkInterfaceOnServer(ComputeServer server, String interfaceName, String bridgeName, String model, String vlanTag, Boolean firewallEnabled) {
-		log.info("ProxmoxVeCloudProvider.updateNetworkInterfaceOnServer called for server: ${server?.id} (${server?.name}), interface: ${interfaceName}, bridge: ${bridgeName}, model: ${model}, vlan: ${vlanTag}, firewall: ${firewallEnabled}")
-		HttpApiClient client = new HttpApiClient()
-		try {
+        ServiceResponse updateNetworkInterfaceOnServer(ComputeServer server, String interfaceName, String bridgeName, String model, String vlanTag, Boolean firewallEnabled) {
+                log.info("ProxmoxVeCloudProvider.updateNetworkInterfaceOnServer called for server: ${server?.id} (${server?.name}), interface: ${interfaceName}, bridge: ${bridgeName}, model: ${model}, vlan: ${vlanTag}, firewall: ${firewallEnabled}")
+                HttpApiClient client = new HttpApiClient()
+                try {
 			// Basic input validation
 			if (server == null) {
 				return ServiceResponse.error("ComputeServer cannot be null.")
@@ -1406,7 +1407,76 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 			log.error("Error in updateNetworkInterfaceOnServer for VM ${server?.externalId}, interface ${interfaceName}: ${e.message}", e)
 			return ServiceResponse.error("Error updating network interface ${interfaceName} on server ${server?.name}: ${e.message}")
 		} finally {
-			client?.shutdownClient()
-		}
-	}
+                        client?.shutdownClient()
+                }
+        }
+
+        /**
+         * Migrate a VM to another node.
+         * @param server The VM to migrate
+         * @param destinationNode target node name
+         * @param live true for live migration
+         * @return ServiceResponse from the Proxmox API
+         */
+        ServiceResponse migrateServer(ComputeServer server, String destinationNode, Boolean live) {
+                log.info("ProxmoxVeCloudProvider.migrateServer called for server: ${server?.id} (${server?.name}), destination: ${destinationNode}, live: ${live}")
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        if(server == null)
+                                return ServiceResponse.error("ComputeServer cannot be null.")
+                        if(server.cloud == null)
+                                return ServiceResponse.error("ComputeServer cloud information is missing.")
+                        if(!destinationNode)
+                                return ServiceResponse.error("Destination node cannot be empty.")
+
+                        Map authConfig = plugin.getAuthConfig(server.cloud)
+                        String vmId = server.externalId
+                        String nodeName = server.parentServer?.name
+                        if(!vmId)
+                                return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+
+                        if(!nodeName) {
+                                log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+                                HttpApiClient tempClient = new HttpApiClient()
+                                try {
+                                        def vmsListResponse = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)
+                                        if(!vmsListResponse.success)
+                                                return ServiceResponse.error("Could not determine node for VM ${vmId}: ${vmsListResponse.msg}")
+                                        def foundVm = vmsListResponse.data?.find { it.vmid.toString() == vmId }
+                                        if(foundVm?.node) {
+                                                nodeName = foundVm.node
+                                                log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+                                        } else {
+                                                return ServiceResponse.error("Missing nodeName for server ${server.name} and could not find it via API.")
+                                        }
+                                } finally {
+                                        tempClient?.shutdownClient()
+                                }
+                        }
+
+                        ServiceResponse response = ProxmoxApiComputeUtil.migrateVm(client, authConfig, nodeName, vmId, destinationNode, live ?: false)
+
+                        if(response.success) {
+                                log.info("Successfully initiated migration of VM ${vmId} to node ${destinationNode}")
+                                // Update parent server reference
+                                def destProj = context.async.computeServer.listIdentityProjections(server.cloud.id, null).filter {
+                                        ComputeServerIdentityProjection p -> p.category == "proxmox.ve.host.${server.cloud.id}" && (p.name == destinationNode || p.externalId == destinationNode)
+                                }.blockingFirst(null)
+                                if(destProj) {
+                                        server.parentServer = context.async.computeServer.get(destProj.id).blockingGet()
+                                        context.async.computeServer.bulkSave([server]).blockingGet()
+                                } else {
+                                        log.warn("Could not find ComputeServer record for destination node ${destinationNode} to update parent reference")
+                                }
+                        } else {
+                                log.error("Failed to migrate VM ${vmId} to node ${destinationNode}: ${response.msg}")
+                        }
+                        return response
+                } catch(e) {
+                        log.error("Error migrating server ${server?.externalId} to node ${destinationNode}: ${e.message}", e)
+                        return ServiceResponse.error("Error migrating server ${server?.name}: ${e.message}")
+                } finally {
+                        client?.shutdownClient()
+                }
+        }
 }
