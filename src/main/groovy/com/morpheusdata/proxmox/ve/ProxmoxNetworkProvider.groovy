@@ -87,7 +87,7 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 
 	@Override
 	ServiceResponse initializeProvider(Cloud cloud) {
-		log.info("Initializeing network provider for ${cloud.name}")
+                log.info("Initializing network provider for ${cloud.name}")
 		ServiceResponse rtn = ServiceResponse.prepare()
 		try {
 			NetworkServer networkServer = new NetworkServer(
