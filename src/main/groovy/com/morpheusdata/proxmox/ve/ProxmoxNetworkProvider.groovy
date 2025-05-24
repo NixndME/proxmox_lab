@@ -447,23 +447,226 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                 return rtn
         }
 	
-	@Override
-	ServiceResponse createSubnet(NetworkSubnet subnet, Network network, Map opts) {
-		log.info("NVR: CREATE SUBNET")
-		return ServiceResponse.success()	
-	}
-	
-	@Override
-	ServiceResponse updateSubnet(NetworkSubnet subnet, Network network, Map opts) {
-		log.info("NVR: UPDATE SUBNET")
-		return ServiceResponse.success()	
-	}
-	
-	@Override
-	ServiceResponse deleteSubnet(NetworkSubnet subnet, Network network, Map opts) {
-		log.info("NVR: DELETE SUBNET")
-		return ServiceResponse.success()
-	}
+        @Override
+        ServiceResponse createSubnet(NetworkSubnet subnet, Network network, Map opts) {
+                log.info("NVR: CREATE SUBNET ${subnet?.name} on ${network?.name}")
+                ServiceResponse rtn = ServiceResponse.prepare()
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Cloud cloud = network?.cloud
+                        if(!cloud) {
+                                rtn.success = false
+                                rtn.msg = "Network cloud is missing"
+                                return rtn
+                        }
+
+                        Map authConfig = plugin.getAuthConfig(cloud)
+
+                        ServiceResponse hostsResponse = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(client, authConfig)
+                        if(!hostsResponse.success) {
+                                rtn.success = false
+                                rtn.msg = "Failed to list Proxmox nodes: ${hostsResponse.msg}"
+                                return rtn
+                        }
+
+                        boolean allSuccess = true
+                        hostsResponse.data.each { host ->
+                                def tokenResp = ProxmoxApiComputeUtil.getApiV2Token(authConfig)
+                                if(!tokenResp.success) {
+                                        allSuccess = false
+                                        rtn.msg = tokenResp.msg
+                                        return
+                                }
+                                def tokenCfg = tokenResp.data
+                                def body = [:]
+                                if(subnet.cidr)
+                                        body.cidr = subnet.cidr
+                                if(subnet.gateway)
+                                        body.gateway = subnet.gateway
+                                if(subnet.dnsPrimary)
+                                        body.dns1 = subnet.dnsPrimary
+                                if(subnet.dnsSecondary)
+                                        body.dns2 = subnet.dnsSecondary
+                                if(subnet.dhcpServer != null)
+                                        body.dhcp = subnet.dhcpServer
+                                if(subnet.poolStart)
+                                        body.start = subnet.poolStart
+                                if(subnet.poolEnd)
+                                        body.end = subnet.poolEnd
+
+                                def optsReq = new HttpApiClient.RequestOptions(
+                                        headers:[
+                                                'Content-Type':'application/json',
+                                                'Cookie':"PVEAuthCookie=${tokenCfg.token}",
+                                                'CSRFPreventionToken': tokenCfg.csrfToken
+                                        ],
+                                        body: body,
+                                        contentType: ContentType.APPLICATION_JSON,
+                                        ignoreSSL: authConfig.ignoreSSL
+                                )
+
+                                String path = "${authConfig.v2basePath}/nodes/${host.node}/network/${network.externalId ?: network.name}/subnets"
+                                def results = client.callJsonApi(authConfig.apiUrl, path, null, null, optsReq, 'POST')
+
+                                if(!results.success) {
+                                        allSuccess = false
+                                        rtn.msg = "Failed creating subnet on ${host.node}: ${results.msg ?: results.content}"
+                                }
+                        }
+
+                        rtn.success = allSuccess
+                        if(allSuccess)
+                                rtn.data = subnet
+                } catch(Exception e) {
+                        rtn.success = false
+                        rtn.msg = "Error creating subnet: ${e.message}"
+                        log.error("createSubnet error", e)
+                } finally {
+                        client.shutdownClient()
+                }
+                return rtn
+        }
+
+        @Override
+        ServiceResponse updateSubnet(NetworkSubnet subnet, Network network, Map opts) {
+                log.info("NVR: UPDATE SUBNET ${subnet?.name} on ${network?.name}")
+                ServiceResponse rtn = ServiceResponse.prepare()
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Cloud cloud = network?.cloud
+                        if(!cloud) {
+                                rtn.success = false
+                                rtn.msg = "Network cloud is missing"
+                                return rtn
+                        }
+
+                        Map authConfig = plugin.getAuthConfig(cloud)
+
+                        ServiceResponse hostsResponse = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(client, authConfig)
+                        if(!hostsResponse.success) {
+                                rtn.success = false
+                                rtn.msg = "Failed to list Proxmox nodes: ${hostsResponse.msg}"
+                                return rtn
+                        }
+
+                        boolean allSuccess = true
+                        hostsResponse.data.each { host ->
+                                def tokenResp = ProxmoxApiComputeUtil.getApiV2Token(authConfig)
+                                if(!tokenResp.success) {
+                                        allSuccess = false
+                                        rtn.msg = tokenResp.msg
+                                        return
+                                }
+                                def tokenCfg = tokenResp.data
+                                def body = [:]
+                                if(subnet.cidr)
+                                        body.cidr = subnet.cidr
+                                if(subnet.gateway)
+                                        body.gateway = subnet.gateway
+                                if(subnet.dnsPrimary)
+                                        body.dns1 = subnet.dnsPrimary
+                                if(subnet.dnsSecondary)
+                                        body.dns2 = subnet.dnsSecondary
+                                if(subnet.dhcpServer != null)
+                                        body.dhcp = subnet.dhcpServer
+                                if(subnet.poolStart)
+                                        body.start = subnet.poolStart
+                                if(subnet.poolEnd)
+                                        body.end = subnet.poolEnd
+
+                                def optsReq = new HttpApiClient.RequestOptions(
+                                        headers:[
+                                                'Content-Type':'application/json',
+                                                'Cookie':"PVEAuthCookie=${tokenCfg.token}",
+                                                'CSRFPreventionToken': tokenCfg.csrfToken
+                                        ],
+                                        body: body,
+                                        contentType: ContentType.APPLICATION_JSON,
+                                        ignoreSSL: authConfig.ignoreSSL
+                                )
+
+                                String path = "${authConfig.v2basePath}/nodes/${host.node}/network/${network.externalId ?: network.name}/subnets/${subnet.externalId ?: subnet.name}"
+                                def results = client.callJsonApi(authConfig.apiUrl, path, null, null, optsReq, 'PUT')
+
+                                if(!results.success) {
+                                        allSuccess = false
+                                        rtn.msg = "Failed updating subnet on ${host.node}: ${results.msg ?: results.content}"
+                                }
+                        }
+
+                        rtn.success = allSuccess
+                        if(allSuccess)
+                                rtn.data = subnet
+                } catch(Exception e) {
+                        rtn.success = false
+                        rtn.msg = "Error updating subnet: ${e.message}"
+                        log.error("updateSubnet error", e)
+                } finally {
+                        client.shutdownClient()
+                }
+                return rtn
+        }
+
+        @Override
+        ServiceResponse deleteSubnet(NetworkSubnet subnet, Network network, Map opts) {
+                log.info("NVR: DELETE SUBNET ${subnet?.name} on ${network?.name}")
+                ServiceResponse rtn = ServiceResponse.prepare()
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Cloud cloud = network?.cloud
+                        if(!cloud) {
+                                rtn.success = false
+                                rtn.msg = "Network cloud is missing"
+                                return rtn
+                        }
+
+                        Map authConfig = plugin.getAuthConfig(cloud)
+
+                        ServiceResponse hostsResponse = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(client, authConfig)
+                        if(!hostsResponse.success) {
+                                rtn.success = false
+                                rtn.msg = "Failed to list Proxmox nodes: ${hostsResponse.msg}"
+                                return rtn
+                        }
+
+                        boolean allSuccess = true
+                        hostsResponse.data.each { host ->
+                                def tokenResp = ProxmoxApiComputeUtil.getApiV2Token(authConfig)
+                                if(!tokenResp.success) {
+                                        allSuccess = false
+                                        rtn.msg = tokenResp.msg
+                                        return
+                                }
+                                def tokenCfg = tokenResp.data
+                                def optsReq = new HttpApiClient.RequestOptions(
+                                        headers:[
+                                                'Content-Type':'application/json',
+                                                'Cookie':"PVEAuthCookie=${tokenCfg.token}",
+                                                'CSRFPreventionToken': tokenCfg.csrfToken
+                                        ],
+                                        contentType: ContentType.APPLICATION_JSON,
+                                        ignoreSSL: authConfig.ignoreSSL
+                                )
+
+                                String path = "${authConfig.v2basePath}/nodes/${host.node}/network/${network.externalId ?: network.name}/subnets/${subnet.externalId ?: subnet.name}"
+                                def results = client.callJsonApi(authConfig.apiUrl, path, null, null, optsReq, 'DELETE')
+
+                                if(!results.success) {
+                                        allSuccess = false
+                                        rtn.msg = "Failed deleting subnet on ${host.node}: ${results.msg ?: results.content}"
+                                }
+                        }
+
+                        rtn.success = allSuccess
+                } catch(Exception e) {
+                        rtn.success = false
+                        rtn.msg = "Error deleting subnet: ${e.message}"
+                        log.error("deleteSubnet error", e)
+                } finally {
+                        client.shutdownClient()
+                }
+                return rtn
+        }
 	
 	@Override
 	Collection getRouterTypes() {
