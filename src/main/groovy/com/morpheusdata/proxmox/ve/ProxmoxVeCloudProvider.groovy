@@ -512,10 +512,6 @@ class ProxmoxVeCloudProvider implements CloudProvider {
                 return false
         }
 
-        @Override
-        Boolean supportsConsoleAccess() {
-                return true
-        }
 
 	/**
 	 * Called when a server should be started. Returning a response of success will cause corresponding updates to usage
