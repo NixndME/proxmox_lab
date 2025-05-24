@@ -1769,6 +1769,52 @@ class ProxmoxApiComputeUtil {
             return ServiceResponse.error("Error updating network interface ${interfaceName} on VM ${vmId}: ${e.message}")
         }
     }
+    static ServiceResponse setVMIpConfiguration(HttpApiClient client, Map authConfig, String nodeName, String vmId,
+                                                Integer nicIndex, String cidr, String gateway) {
+        log.debug("setVMIpConfiguration: vmId=${vmId}, node=${nodeName}, nicIndex=${nicIndex}, cidr=${cidr}, gateway=${gateway}")
+        try {
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return ServiceResponse.error("Failed to get API token for Proxmox in setVMIpConfiguration: ${tokenCfgResponse.msg}")
+            }
+            def tokenCfg = tokenCfgResponse.data
+            String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
+
+            String ipVal = "ip=${cidr}"
+            if (gateway) {
+                ipVal += ",gw=${gateway}"
+            }
+
+            def body = [("ipconfig${nicIndex}".toString()): ipVal]
+
+            def opts = new HttpApiClient.RequestOptions(
+                    headers: [
+                            'Content-Type'       : 'application/json',
+                            'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                            'CSRFPreventionToken': tokenCfg.csrfToken
+                    ],
+                    body: body,
+                    contentType: ContentType.APPLICATION_JSON,
+                    ignoreSSL: authConfig.ignoreSSL
+            )
+
+            log.debug("Setting IP config for VM ${vmId} on node ${nodeName}: ${body}")
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, configPath, null, null, opts, 'POST')
+
+            if (results.success) {
+                log.info("Successfully set IP configuration ipconfig${nicIndex} for VM ${vmId}")
+                return ServiceResponse.success("IP configuration set", [taskId: results.data?.data])
+            } else {
+                String errorMessage = results.msg ?: results.content ?: "Unknown error"
+                log.error("Failed to set IP configuration for VM ${vmId}: ${errorMessage}")
+                return ServiceResponse.error("Failed to set IP configuration: ${errorMessage}")
+            }
+        } catch (e) {
+            log.error("Error setting IP configuration for VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error setting IP configuration: ${e.message}")
+        }
+    }
+
 
     static ServiceResponse convertVMToTemplate(HttpApiClient client, Map authConfig, String nodeName, String vmId) {
         log.debug("convertVMToTemplate: vmId=${vmId} on node ${nodeName}")

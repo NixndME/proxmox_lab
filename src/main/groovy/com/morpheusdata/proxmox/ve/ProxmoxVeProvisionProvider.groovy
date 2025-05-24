@@ -34,6 +34,7 @@ import com.morpheusdata.response.ServiceResponse
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import com.morpheusdata.proxmox.ve.util.ProxmoxMiscUtil
 import com.morpheusdata.proxmox.ve.sync.HostSync
+import com.morpheusdata.proxmox.ve.util.ProxmoxIpManager
 import groovy.util.logging.Slf4j
 
 @Slf4j
@@ -447,7 +448,21 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 					// This should throw an exception or return immediately to stop further processing
 					throw new RuntimeException("Provisioning failed: Network interface configuration failed for ${proxmoxInterfaceName}. ${nicResponse.msg}")
 				}
-				log.info("Successfully configured network interface ${proxmoxInterfaceName} for VM ${server.externalId}.")
+                                log.info("Successfully configured network interface ${proxmoxInterfaceName} for VM ${server.externalId}.")
+
+                                if(nicConfig.ipAddress) {
+                                        log.info("Setting static IP ${nicConfig.ipAddress} on ${proxmoxInterfaceName} for VM ${server.externalId}")
+                                        ServiceResponse ipResponse = ProxmoxApiComputeUtil.setVMIpConfiguration(client, authConfig, nodeId, server.externalId, index, nicConfig.ipAddress, nicConfig.gateway)
+                                        if(!ipResponse.success) {
+                                                log.error("Failed to set IP address on ${proxmoxInterfaceName} for VM ${server.externalId}: ${ipResponse.msg}")
+                                                server.status = ComputeServer.Status.failed
+                                                server.statusMessage = "Failed to set IP on ${proxmoxInterfaceName}: ${ipResponse.msg}"
+                                                saveAndGet(server)
+                                                throw new RuntimeException("Provisioning failed: IP configuration failed for ${proxmoxInterfaceName}. ${ipResponse.msg}")
+                                        } else {
+                                                ProxmoxIpManager.reserveIp(nicConfig.ipAddress.toString())
+                                        }
+                                }
 			}
 		} else {
 			log.info("No network interfaces specified in workloadRequest.networkInterfaces. VM will use template's network configuration or DHCP.")
