@@ -183,9 +183,9 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
     }
 
     @Override
-    Map<String,Object> getBackupRestoreInstanceConfig(BackupResult backupResult, Instance instance, Map config, Map opts) {
-        // Return an empty config map; override if provider needs specific values
-        return [:]
+    ServiceResponse<Map<String,Object>> getBackupRestoreInstanceConfig(BackupResult backupResult, Instance instance, Map config, Map opts) {
+        // Return an empty config map wrapped in a ServiceResponse; override if provider needs specific values
+        return ServiceResponse.success([:])
     }
 
     @Override
