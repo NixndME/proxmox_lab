@@ -117,6 +117,37 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                 displayOrder: 2
                 )
 
+                // Additional editable fields for bridge networks
+                options << new OptionType(
+                                name: 'DNS Primary',
+                                code: 'proxmox-network-dns-primary',
+                                fieldName: 'dnsPrimary',
+                                fieldLabel: 'DNS Primary',
+                                inputType: OptionType.InputType.TEXT,
+                                required: false,
+                                displayOrder: 3
+                )
+
+                options << new OptionType(
+                                name: 'DNS Secondary',
+                                code: 'proxmox-network-dns-secondary',
+                                fieldName: 'dnsSecondary',
+                                fieldLabel: 'DNS Secondary',
+                                inputType: OptionType.InputType.TEXT,
+                                required: false,
+                                displayOrder: 4
+                )
+
+                options << new OptionType(
+                                name: 'DHCP Server',
+                                code: 'proxmox-network-dhcp',
+                                fieldName: 'dhcpServer',
+                                fieldLabel: 'DHCP Server',
+                                inputType: OptionType.InputType.CHECKBOX,
+                                required: false,
+                                displayOrder: 5
+                )
+
                 return options
         }
 
@@ -215,6 +246,12 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                         body.vlan = vlanId
                                 if(ovsEnabled)
                                         body.ovs = true
+                                if(network.dnsPrimary)
+                                        body.dns1 = network.dnsPrimary
+                                if(network.dnsSecondary)
+                                        body.dns2 = network.dnsSecondary
+                                if(network.dhcpServer != null)
+                                        body.dhcp = network.dhcpServer
 
                                 def optsReq = new HttpApiClient.RequestOptions(
                                         headers:[
@@ -301,6 +338,12 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                         body.type = mode
                                 if(ovsEnabled)
                                         body.ovs = true
+                                if(network.dnsPrimary)
+                                        body.dns1 = network.dnsPrimary
+                                if(network.dnsSecondary)
+                                        body.dns2 = network.dnsSecondary
+                                if(network.dhcpServer != null)
+                                        body.dhcp = network.dhcpServer
 
                                 def optsReq = new HttpApiClient.RequestOptions(
                                         headers:[
