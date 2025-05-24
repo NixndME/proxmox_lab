@@ -1335,7 +1335,7 @@ class ProxmoxApiComputeUtil {
 
             String path = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/snapshot/${snapshotName}/rollback"
             
-            def opts = new HttpApiClient.Request.RequestOptions( // Corrected typo here
+            def opts = new HttpApiClient.RequestOptions(
                 headers: [
                     'Content-Type': 'application/json',
                     'Cookie': "PVEAuthCookie=${tokenCfg.token}",
