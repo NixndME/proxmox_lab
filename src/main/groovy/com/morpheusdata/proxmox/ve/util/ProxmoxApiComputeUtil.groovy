@@ -1564,6 +1564,59 @@ class ProxmoxApiComputeUtil {
         }
     }
 
+    static ServiceResponse resizeVMDisk(HttpApiClient client, Map authConfig, String nodeName, String vmId, String diskName, Integer newSizeGB) {
+        log.debug("resizeVMDisk: vmId=${vmId}, nodeName=${nodeName}, diskName=${diskName}, newSizeGB=${newSizeGB}")
+
+        try {
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if (!tokenCfgResponse.success) {
+                return tokenCfgResponse
+            }
+            def tokenCfg = tokenCfgResponse.data
+
+            String apiPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/resize"
+            def requestBody = [
+                disk: diskName,
+                size: "${newSizeGB}G"
+            ]
+
+            def opts = new HttpApiClient.RequestOptions(
+                headers: [
+                    'Content-Type'       : 'application/json',
+                    'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                body: requestBody,
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+            )
+
+            log.debug("Resizing disk '${diskName}' on VM ${vmId} via ${authConfig.apiUrl}${apiPath} with body ${requestBody}")
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client,
+                    authConfig.apiUrl,
+                    apiPath,
+                    null,
+                    null,
+                    opts,
+                    'PUT'
+            )
+
+            if (results.success) {
+                log.info("Successfully initiated resize of disk ${diskName} on VM ${vmId}. Task ID: ${results.data?.data}")
+                return ServiceResponse.success("Disk ${diskName} resize initiated", [taskId: results.data?.data])
+            } else {
+                String errMsg = results.msg ?: results.content ?: ''
+                if (errMsg.toLowerCase().contains('busy') || errMsg.toLowerCase().contains('in use')) {
+                    return ServiceResponse.error("Disk in use: ${errMsg}")
+                }
+                return ProxmoxApiUtil.validateApiResponse(results, "Failed to resize disk ${diskName} on VM ${vmId}")
+            }
+        } catch (e) {
+            log.error("Error resizing disk ${diskName} on VM ${vmId}: ${e.message}", e)
+            return ServiceResponse.error("Error resizing disk ${diskName} on VM ${vmId}: ${e.message}")
+        }
+    }
+
     static ServiceResponse removeVMNetworkInterface(HttpApiClient client, Map authConfig, String nodeName, String vmId, String interfaceName) {
         log.debug("removeVMNetworkInterface: vmId=${vmId}, nodeName=${nodeName}, interfaceName=${interfaceName}")
 

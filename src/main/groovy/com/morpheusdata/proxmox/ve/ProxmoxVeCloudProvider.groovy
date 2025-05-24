@@ -737,7 +737,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 * @param diskType The Proxmox disk type (e.g., 'scsi', 'sata', 'ide', 'virtio'). This determines the controller/bus.
 	 * @return ServiceResponse indicating success or failure, and potentially a taskId from Proxmox.
 	 */
-	ServiceResponse addDiskToServer(ComputeServer server, String storageName, Integer diskSizeGB, String diskType) {
+        ServiceResponse addDiskToServer(ComputeServer server, String storageName, Integer diskSizeGB, String diskType) {
 		log.info("ProxmoxVeCloudProvider.addDiskToServer called for server: ${server?.id} (${server?.name}), storage: ${storageName}, size: ${diskSizeGB}GB, type: ${diskType}")
 		HttpApiClient client = new HttpApiClient()
 		try {
@@ -1493,6 +1493,86 @@ class ProxmoxVeCloudProvider implements CloudProvider {
                 } catch(e) {
                         log.error("Error migrating server ${server?.externalId} to node ${destinationNode}: ${e.message}", e)
                         return ServiceResponse.error("Error migrating server ${server?.name}: ${e.message}")
+                } finally {
+                        client?.shutdownClient()
+                }
+        }
+
+        /**
+         * Resizes an existing disk on the specified ComputeServer.
+         *
+         * @param server The ComputeServer (VM) whose disk should be resized.
+         * @param diskName The name of the disk to resize (e.g., 'scsi0').
+         * @param newSizeGB The new size of the disk in Gigabytes.
+         * @return ServiceResponse indicating success or failure.
+         */
+        ServiceResponse resizeDiskOnServer(ComputeServer server, String diskName, Integer newSizeGB) {
+                log.info("ProxmoxVeCloudProvider.resizeDiskOnServer called for server: ${server?.id} (${server?.name}), disk: ${diskName}, newSizeGB: ${newSizeGB}")
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        if (server == null)
+                                return ServiceResponse.error("ComputeServer cannot be null.")
+                        if (server.cloud == null)
+                                return ServiceResponse.error("ComputeServer cloud information is missing.")
+                        if (!diskName)
+                                return ServiceResponse.error("Disk name cannot be empty.")
+                        if (newSizeGB == null || newSizeGB <= 0)
+                                return ServiceResponse.error("New disk size must be a positive integer.")
+
+                        Map authConfig = plugin.getAuthConfig(server.cloud)
+                        String vmId = server.externalId
+                        String nodeName = server.parentServer?.name
+                        if (!vmId)
+                                return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
+
+                        if (!nodeName) {
+                                log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
+                                HttpApiClient tempClient = new HttpApiClient()
+                                try {
+                                        def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
+                                        def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+                                        if (foundVm?.node) {
+                                                nodeName = foundVm.node
+                                                log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
+                                        } else {
+                                                return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
+                                        }
+                                } finally {
+                                        tempClient?.shutdownClient()
+                                }
+                        }
+
+                        log.info("Attempting to resize disk '${diskName}' on VM ${vmId} at node ${nodeName} to ${newSizeGB}GB")
+                        ServiceResponse response = ProxmoxApiComputeUtil.resizeVMDisk(client, authConfig, nodeName, vmId, diskName, newSizeGB)
+
+                        if (response.success) {
+                                log.info("Successfully initiated resize of disk '${diskName}' for VM ${vmId} on node ${nodeName}")
+                                try {
+                                        if(server.configMap?.proxmoxDisks) {
+                                                def disks = new groovy.json.JsonSlurper().parseText(server.configMap.proxmoxDisks)
+                                                def diskEntry = disks.find { it.name == diskName }
+                                                if(diskEntry) {
+                                                        diskEntry.sizeBytes = newSizeGB * 1024L * 1024L * 1024L
+                                                        diskEntry.sizeRaw = "${newSizeGB}G"
+                                                }
+                                                server.configMap.proxmoxDisks = groovy.json.JsonOutput.toJson(disks)
+                                                long totalSize = disks.collect{ it.sizeBytes ?: 0L }.sum()
+                                                server.maxStorage = totalSize
+                                                if(server.capacityInfo)
+                                                        server.capacityInfo.maxStorage = totalSize
+                                                context.async.computeServer.bulkSave([server]).blockingGet()
+                                        }
+                                } catch(ex) {
+                                        log.warn("Failed updating Morpheus metadata after disk resize: ${ex.message}", ex)
+                                }
+                        } else {
+                                log.error("Failed to resize disk '${diskName}' for VM ${vmId} on node ${nodeName}: ${response.msg}")
+                        }
+                        return response
+
+                } catch (e) {
+                        log.error("Error in resizeDiskOnServer for VM ${server?.externalId}, disk ${diskName}: ${e.message}", e)
+                        return ServiceResponse.error("Error resizing disk ${diskName} on server ${server?.name}: ${e.message}")
                 } finally {
                         client?.shutdownClient()
                 }
