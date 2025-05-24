@@ -6,6 +6,7 @@ import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.http.entity.ContentType
 import com.morpheusdata.proxmox.ve.util.ProxmoxSslUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiUtil
 
 import java.net.URLEncoder
 
@@ -33,7 +34,7 @@ class ProxmoxApiBackupUtil {
                     contentType: ContentType.APPLICATION_FORM_URLENCODED,
                     ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable based on cloud settings if possible
             )
-            def results = client.callJsonApi(authConfig.apiUrl,"${authConfig.v2basePath}/\${path}", opts, 'POST')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "${authConfig.v2basePath}/\${path}", null, null, opts, 'POST')
 
             log.debug("getApiV2Token API request results: \${results.toMap()}")
             if(results?.success && !results?.hasErrors() && results.data?.data) {
@@ -87,17 +88,15 @@ class ProxmoxApiBackupUtil {
             )
 
             log.info("Creating Proxmox snapshot. API POST to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path} with body: \${bodyPayload}")
-            def results = client.callJsonApi(authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'POST')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'POST')
             log.debug("Create snapshot API response: \${results.toMap()}")
 
             if (results?.success && results.data?.data) {
                 rtn.success = true
-                rtn.data = results.data // Usually contains the task ID
+                rtn.data = results.data
                 rtn.msg = "Snapshot creation initiated successfully. Task ID: \${results.data.data}"
             } else {
-                rtn.success = false
-                rtn.msg = "Failed to create snapshot: \${results.msg ?: results.content}"
-                log.error(rtn.msg)
+                rtn = ProxmoxApiUtil.validateApiResponse(results, "Failed to create snapshot")
             }
         } catch (Exception e) {
             log.error("Exception during createSnapshot: \${e.message}", e)
@@ -127,7 +126,7 @@ class ProxmoxApiBackupUtil {
             )
 
             log.info("Deleting Proxmox snapshot. API DELETE to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
-            def results = client.callJsonApi(authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'DELETE')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'DELETE')
             log.debug("Delete snapshot API response: \${results.toMap()}")
 
             if (results?.success && results.data?.data) {
@@ -142,9 +141,7 @@ class ProxmoxApiBackupUtil {
                      rtn.success = true
                      rtn.msg = "Snapshot deletion request processed. Proxmox response indicated success."
                 } else {
-                    rtn.success = false
-                    rtn.msg = "Failed to delete snapshot: \${results.msg ?: results.content}"
-                    log.error(rtn.msg)
+                    rtn = ProxmoxApiUtil.validateApiResponse(results, "Failed to delete snapshot")
                 }
             }
         } catch (Exception e) {
@@ -182,7 +179,7 @@ class ProxmoxApiBackupUtil {
             )
 
             log.info("Rolling back Proxmox snapshot. API POST to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
-            def results = client.callJsonApi(authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'POST')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'POST')
             log.debug("Rollback snapshot API response: \${results.toMap()}")
 
             if (results?.success && results.data?.data) {
@@ -190,9 +187,7 @@ class ProxmoxApiBackupUtil {
                 rtn.data = results.data // Usually contains the task ID
                 rtn.msg = "Snapshot rollback initiated successfully. Task ID: \${results.data.data}"
             } else {
-                rtn.success = false
-                rtn.msg = "Failed to rollback snapshot: \${results.msg ?: results.content}"
-                log.error(rtn.msg)
+                rtn = ProxmoxApiUtil.validateApiResponse(results, "Failed to rollback snapshot")
             }
         } catch (Exception e) {
             log.error("Exception during rollbackSnapshot: \${e.message}", e)
@@ -221,16 +216,14 @@ class ProxmoxApiBackupUtil {
             )
 
             log.debug("Fetching Proxmox task status from \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
-            def results = client.callJsonApi(authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'GET')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "\${authConfig.v2basePath}/\${path}", null, null, opts, 'GET')
             log.debug("Task status API response: \${results.toMap()}")
 
             if(results?.success) {
                 rtn.success = true
                 rtn.data = results.data?.data ?: results.data
             } else {
-                rtn.success = false
-                rtn.msg = "Failed to fetch task status: \${results.msg ?: results.content}"
-                log.error(rtn.msg)
+                rtn = ProxmoxApiUtil.validateApiResponse(results, "Failed to fetch task status")
             }
         } catch(Exception e) {
             log.error("Exception during getTaskStatus: \${e.message}", e)
