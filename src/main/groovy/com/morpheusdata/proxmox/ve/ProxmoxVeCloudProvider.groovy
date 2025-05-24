@@ -4,7 +4,6 @@ import com.morpheusdata.proxmox.ve.sync.DatastoreSync
 import com.morpheusdata.proxmox.ve.sync.HostSync
 import com.morpheusdata.proxmox.ve.sync.NetworkSync
 import com.morpheusdata.proxmox.ve.sync.VirtualImageLocationSync
-import com.morpheusdata.proxmox.ve.sync.ClusterSync
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
 import com.morpheusdata.core.providers.CloudProvider
@@ -390,9 +389,8 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 		HttpApiClient client = new HttpApiClient()
 		try {
 			log.debug("Synchronizing hosts, datastores, networks, VMs and virtual images...")
-                        (new HostSync(plugin, cloudInfo, client)).execute()
-                        (new ClusterSync(plugin, cloudInfo, client)).execute()
-                        (new DatastoreSync(plugin, cloudInfo, client)).execute()
+			(new HostSync(plugin, cloudInfo, client)).execute()
+			(new DatastoreSync(plugin, cloudInfo, client)).execute()
 			(new NetworkSync(plugin, cloudInfo, client)).execute()
 			(new VMSync(plugin, cloudInfo, client, this)).execute()
 			(new VirtualImageLocationSync(plugin, cloudInfo, client, this)).execute()
@@ -491,18 +489,9 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 * @return Boolean
 	 */
 	@Override
-        Boolean hasBareMetal() {
-                return false
-        }
-
-        /**
-         * Returns whether the cloud supports clusters / HA groups
-         * @return Boolean
-         */
-        @Override
-        Boolean hasClusters() {
-                return true
-        }
+	Boolean hasBareMetal() {
+		return false
+	}
 
 	/**
 	 * Indicates if the cloud supports cloud-init. Returning true will allow configuration of the Cloud
