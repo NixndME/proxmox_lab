@@ -261,7 +261,7 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                         ],
                                         body: body,
                                         contentType: ContentType.APPLICATION_JSON,
-                                        ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                                        ignoreSSL: authConfig.ignoreSSL
                                 )
 
                                 def results = client.callJsonApi(authConfig.apiUrl,
@@ -353,7 +353,7 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                         ],
                                         body: body,
                                         contentType: ContentType.APPLICATION_JSON,
-                                        ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                                        ignoreSSL: authConfig.ignoreSSL
                                 )
 
                                 def results = client.callJsonApi(authConfig.apiUrl,
@@ -423,7 +423,7 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
                                                 'CSRFPreventionToken': tokenCfg.csrfToken
                                         ],
                                         contentType: ContentType.APPLICATION_JSON,
-                                        ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                                        ignoreSSL: authConfig.ignoreSSL
                                 )
 
                                 def results = client.callJsonApi(authConfig.apiUrl,

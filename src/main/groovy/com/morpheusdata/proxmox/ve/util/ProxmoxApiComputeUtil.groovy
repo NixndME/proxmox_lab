@@ -41,7 +41,7 @@ class ProxmoxApiComputeUtil {
                             memory: ramValue
                     ],
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             ]
 
             log.debug("Setting VM Compute Size $vmId on node $node...")
@@ -94,7 +94,7 @@ class ProxmoxApiComputeUtil {
                     ],
                     body     : bodyPayload,
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             ]
 
             String apiPath = "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config"
@@ -188,7 +188,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: body,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             ]
 
             String apiPath = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/migrate"
@@ -231,7 +231,7 @@ class ProxmoxApiComputeUtil {
                             node: nodeId
                     ],
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             ]
 
             String apiPath = "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action"
@@ -267,7 +267,7 @@ class ProxmoxApiComputeUtil {
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             ]
             String apiPath = "${authConfig.v2basePath}/nodes/${nodeId}/status/${action}"
             log.debug("Node action POST path ${authConfig.apiUrl}${apiPath}")
@@ -299,7 +299,7 @@ class ProxmoxApiComputeUtil {
                             'CSRFPreventionToken': tokenCfg.csrfToken
                     ],
                     body: null,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL,
+                    ignoreSSL: authConfig.ignoreSSL,
                     contentType: ContentType.APPLICATION_JSON,
             ]
 
@@ -357,7 +357,7 @@ class ProxmoxApiComputeUtil {
                             template: true
                     ],
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             ]
 
             log.debug("Creating blank template for attaching qcow2...")
@@ -412,7 +412,7 @@ class ProxmoxApiComputeUtil {
                             'CSRFPreventionToken': tokenCfg.csrfToken
                     ],
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             ]
 
             log.debug("Checking VM Status after clone template $templateId to VM $vmId on node $nodeId")
@@ -476,7 +476,7 @@ class ProxmoxApiComputeUtil {
                             full: true
                     ],
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             ]
 
             log.debug("Cloning template $templateId to VM $name($nextId) on node $nodeId")
@@ -890,7 +890,7 @@ class ProxmoxApiComputeUtil {
                         'CSRFPreventionToken': tokenCfg.csrfToken
                     ],
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             )
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "${authConfig.v2basePath}/${path}", null, null, opts, 'GET')
             
@@ -945,7 +945,7 @@ class ProxmoxApiComputeUtil {
                     headers: ['Content-Type':'application/x-www-form-urlencoded'],
                     body: bodyStr,
                     contentType: ContentType.APPLICATION_FORM_URLENCODED,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             )
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl,"${authConfig.v2basePath}/${path}", null, null, opts, 'POST')
 
@@ -990,7 +990,7 @@ class ProxmoxApiComputeUtil {
                     headers: ['Content-Type':'application/x-www-form-urlencoded'],
                     body: bodyStr,
                     contentType: ContentType.APPLICATION_FORM_URLENCODED,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             )
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, baseUrl,"${API_BASE_PATH}/${path}", opts, 'POST')
 
@@ -1037,7 +1037,7 @@ class ProxmoxApiComputeUtil {
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
             String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
             log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
@@ -1097,7 +1097,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: addDiskBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Adding disk with POST to: ${authConfig.apiUrl}${configPath}")
@@ -1154,7 +1154,7 @@ class ProxmoxApiComputeUtil {
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
             String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
             log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
@@ -1214,7 +1214,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: addNicBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Adding NIC with POST to: ${authConfig.apiUrl}${configPath}")
@@ -1290,7 +1290,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: requestBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Requesting ${consoleType} console with POST to: ${authConfig.apiUrl}${apiPath}")
@@ -1371,7 +1371,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: requestBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Creating snapshot with POST to: ${authConfig.apiUrl}${path}")
@@ -1418,7 +1418,7 @@ class ProxmoxApiComputeUtil {
                     'Cookie': "PVEAuthCookie=${tokenCfg.token}",
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Deleting snapshot with DELETE to: ${authConfig.apiUrl}${path}")
@@ -1466,7 +1466,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: [:], // Empty body for rollback
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Rolling back snapshot with POST to: ${authConfig.apiUrl}${path}")
@@ -1525,7 +1525,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: requestBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Removing disk '${diskName}' from VM ${vmId} on node ${nodeName} with POST to: ${authConfig.apiUrl}${configPath}")
@@ -1588,7 +1588,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: requestBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Resizing disk '${diskName}' on VM ${vmId} via ${authConfig.apiUrl}${apiPath} with body ${requestBody}")
@@ -1646,7 +1646,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: requestBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Removing network interface '${interfaceName}' from VM ${vmId} on node ${nodeName} with POST to: ${authConfig.apiUrl}${configPath}")
@@ -1732,7 +1732,7 @@ class ProxmoxApiComputeUtil {
                 ],
                 body: requestBody,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Updating network interface '${interfaceName}' on VM ${vmId} on node ${nodeName} with POST to: ${authConfig.apiUrl}${configPath}")
@@ -1783,7 +1783,7 @@ class ProxmoxApiComputeUtil {
                             'CSRFPreventionToken': tokenCfg.csrfToken
                     ],
                     contentType: ContentType.APPLICATION_JSON,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                    ignoreSSL: authConfig.ignoreSSL
             ]
 
             String apiPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/template"
