@@ -42,7 +42,7 @@ class ProxmoxVeOptionSourceProvider extends AbstractOptionSourceProvider {
 
     @Override
     List<String> getMethodNames() {
-        return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode', 'proxmoxVeDestinationNode'])
+        return new ArrayList<String>(['proxmoxVeProvisionImage', 'proxmoxVeNode', 'proxmoxVeDestinationNode', 'proxmoxVeInstanceSizes'])
     }
 
 
@@ -132,5 +132,19 @@ class ProxmoxVeOptionSourceProvider extends AbstractOptionSourceProvider {
 
         log.error("FOUND ${options.size()} VirtualImages...")
         return options
+    }
+
+    /**
+     * Option source supplying a few canned instance sizes for quick selection
+     * during provisioning. These correlate to small, medium and large sizes
+     * commonly used when no cloud specific plans exist.
+     */
+    def proxmoxVeInstanceSizes(args) {
+        log.debug "proxmoxVeInstanceSizes called"
+        return [
+                [name: 'Small - 1 vCPU / 2GB RAM / 20GB Disk', value: 'small', cores: 1, memory: 2048, disk: 20],
+                [name: 'Medium - 2 vCPU / 4GB RAM / 40GB Disk', value: 'medium', cores: 2, memory: 4096, disk: 40],
+                [name: 'Large - 4 vCPU / 8GB RAM / 80GB Disk', value: 'large', cores: 4, memory: 8192, disk: 80]
+        ]
     }
 }

@@ -126,9 +126,22 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 	 * Provides a Collection of OptionType inputs that need to be made available to various provisioning Wizards
 	 * @return Collection of OptionTypes
 	 */
-	@Override
-	Collection<OptionType> getOptionTypes() {
-		def options = []
+        @Override
+        Collection<OptionType> getOptionTypes() {
+                def options = []
+
+                options << new OptionType(
+                                name: 'Instance Size',
+                                code: 'proxmox-instance-size',
+                                category:'provisionType.proxmox.custom',
+                                inputType: OptionType.InputType.SELECT,
+                                fieldName: 'servicePlan',
+                                fieldContext: 'config',
+                                fieldLabel: 'Instance Size',
+                                displayOrder: 0,
+                                required: true,
+                                optionSource: 'proxmoxVeInstanceSizes'
+                )
 /*
 		options << new OptionType(
 				name: 'skip agent install',

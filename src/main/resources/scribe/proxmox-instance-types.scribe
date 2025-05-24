@@ -47,7 +47,7 @@ resource "instance-type" "proxmox-provision-provider" {
   pluginIconHidpiPath     = "proxmox-logo-stacked-color.svg"
   pluginIconDarkPath      = "proxmox-full-lockup-inverted-color.svg"
   pluginIconDarkHidpiPath = "proxmox-logo-stacked-inverted-color.svg"
-  optionTypes             = ["instanceType.proxmox.image", "instanceType.proxmox.node"]
+  optionTypes             = ["instanceType.proxmox.image", "instanceType.proxmox.node", "instanceType.proxmox.plan"]
 }
 
 
