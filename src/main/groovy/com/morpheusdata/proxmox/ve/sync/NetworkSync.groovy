@@ -4,6 +4,7 @@ import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.data.DataQuery
+import com.morpheusdata.core.data.DataFilter
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.SyncTask
 import com.morpheusdata.model.Cloud
@@ -36,12 +37,21 @@ class NetworkSync {
 
             log.debug "BEGIN: execute NetworkSync: ${cloud.id}"
 
-            def cloudItems = ProxmoxApiComputeUtil.listProxmoxNetworks(apiClient, authConfig)
+            def cloudItemsResp = ProxmoxApiComputeUtil.listProxmoxNetworks(apiClient, authConfig)
+            if(!cloudItemsResp.success) {
+                log.error "NetworkSync error fetching networks: ${cloudItemsResp.msg}"
+                return
+            }
+            def cloudItems = cloudItemsResp.data
+
             def domainRecords = morpheusContext.async.network.listIdentityProjections(
-                    new DataQuery().withFilter('typeCode', "proxmox.ve.bridge.$cloud.id")
+                    new DataQuery().withFilters([
+                            new DataFilter('typeCode', 'proxmox-ve-bridge-network'),
+                            new DataFilter('refId', cloud.id)
+                    ])
             )
 
-            SyncTask<NetworkIdentityProjection, Map, Network> syncTask = new SyncTask<>(domainRecords, cloudItems.data)
+            SyncTask<NetworkIdentityProjection, Map, Network> syncTask = new SyncTask<>(domainRecords, cloudItems)
 
             syncTask.addMatchFunction { NetworkIdentityProjection domainObject, Map network ->
                 domainObject?.externalId == network?.iface
@@ -108,17 +118,44 @@ class NetworkSync {
 
 
     private updateMatchedNetworks(List<SyncTask.UpdateItem<Network, Map>> updateItems) {
-        for (def updateItem in updateItems) {
-            def existingItem = updateItem.existingItem
-            def cloudItem = updateItem.masterItem
+        log.debug("Updating ${updateItems.size()} Networks ...")
+        def saveList = []
+        updateItems.each { updateItem ->
+            Network existingItem = updateItem.existingItem
+            Map cloudItem = updateItem.masterItem
+            boolean save = false
 
-            //Add update logic here...
-            //updateMachineMetrics()
+            if(existingItem.name != cloudItem.iface) {
+                existingItem.name = cloudItem.iface
+                save = true
+            }
+            if(existingItem.displayName != cloudItem.name) {
+                existingItem.displayName = cloudItem.name
+                save = true
+            }
+            if(existingItem.cidr != cloudItem.networkAddress) {
+                existingItem.cidr = cloudItem.networkAddress
+                existingItem.description = cloudItem.networkAddress
+                save = true
+            }
+            if(existingItem.gateway != cloudItem.gateway) {
+                existingItem.gateway = cloudItem.gateway
+                existingItem.dnsPrimary = cloudItem.gateway
+                save = true
+            }
+            if(existingItem.status != cloudItem.active) {
+                existingItem.status = cloudItem.active
+                save = true
+            }
+
+            if(save) {
+                saveList << existingItem
+            }
         }
 
-        //Example:
-        // Nutanix - https://github.com/gomorpheus/morpheus-nutanix-prism-plugin/blob/master/src/main/groovy/com/morpheusdata/nutanix/prism/plugin/sync/NetworksSync.groovy
-        // Openstack - https://github.com/gomorpheus/morpheus-openstack-plugin/blob/main/src/main/groovy/com/morpheusdata/openstack/plugin/sync/NetworksSync.groovy
+        if(saveList) {
+            morpheusContext.async.network.bulkSave(saveList).blockingGet()
+        }
     }
 
 
