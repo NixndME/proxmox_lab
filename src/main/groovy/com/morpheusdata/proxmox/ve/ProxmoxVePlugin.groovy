@@ -18,6 +18,7 @@ package com.morpheusdata.proxmox.ve
 import com.morpheusdata.core.Plugin
 import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.AccountCredential
+import com.morpheusdata.proxmox.ve.util.ProxmoxSslUtil
 import groovy.util.logging.Slf4j
 
 @Slf4j
@@ -55,7 +56,8 @@ class ProxmoxVePlugin extends Plugin {
                 apiUrl    : cloud.serviceUrl,
                 v2basePath: V2_BASE_PATH,
                 username  : null,
-                password  : null
+                password  : null,
+                ignoreSSL : ProxmoxSslUtil.IGNORE_SSL
         ]
 
         if(!cloud.accountCredentialLoaded) {
@@ -79,6 +81,9 @@ class ProxmoxVePlugin extends Plugin {
             rtn.password = cloud.accountCredentialData['password']
         } else {
             rtn.password = cloud.configMap.password ?: cloud.servicePassword
+        }
+        if(cloud.configMap?.containsKey('verifySsl')) {
+            rtn.ignoreSSL = !cloud.configMap.verifySsl.toString().toBoolean()
         }
         return rtn
     }

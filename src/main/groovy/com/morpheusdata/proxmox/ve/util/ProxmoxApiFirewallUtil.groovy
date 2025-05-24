@@ -29,7 +29,7 @@ class ProxmoxApiFirewallUtil {
                 headers:['Content-Type':'application/x-www-form-urlencoded'],
                 body: bodyStr,
                 contentType: ContentType.APPLICATION_FORM_URLENCODED,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "${authConfig.v2basePath}/${path}", null, null, opts, 'POST')
             log.debug("getApiV2Token API response raw content: ${results.content}")
@@ -65,7 +65,7 @@ class ProxmoxApiFirewallUtil {
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
             String path = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/firewall/rules"
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, path, null, null, opts, 'GET')
@@ -98,7 +98,7 @@ class ProxmoxApiFirewallUtil {
                 ],
                 body: ruleConfig,
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
             String path = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/firewall/rules"
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, path, null, null, opts, 'POST')
@@ -130,7 +130,7 @@ class ProxmoxApiFirewallUtil {
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
                 contentType: ContentType.APPLICATION_JSON,
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
             String path = "${authConfig.v2basePath}/nodes/${nodeId}/qemu/${vmId}/firewall/rules/${rulePos}"
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, path, null, null, opts, 'DELETE')

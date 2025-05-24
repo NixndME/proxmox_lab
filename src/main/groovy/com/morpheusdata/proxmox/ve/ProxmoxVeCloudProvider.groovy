@@ -148,6 +148,17 @@ class ProxmoxVeCloudProvider implements CloudProvider {
                                 defaultValue: false,
                                 required: false
                 )
+                options << new OptionType(
+                                name: 'Verify SSL Certificates',
+                                code: 'proxmox-verify-ssl',
+                                displayOrder: 5,
+                                fieldContext: 'config',
+                                fieldLabel: 'Verify SSL Certificates',
+                                fieldName: 'verifySsl',
+                                inputType: OptionType.InputType.CHECKBOX,
+                                defaultValue: !ProxmoxSslUtil.IGNORE_SSL,
+                                required: false
+                )
 /*		options << new OptionType(
 				name: 'Proxmox Token',
 				code: 'proxmox-token',
@@ -941,7 +952,7 @@ class ProxmoxVeCloudProvider implements CloudProvider {
                                ],
                                body: body,
                                contentType: ContentType.APPLICATION_JSON,
-                               ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                               ignoreSSL: authConfig.ignoreSSL
                        )
 
                        log.debug("POST ${authConfig.apiUrl}${path} body ${body}")

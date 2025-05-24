@@ -32,7 +32,7 @@ class ProxmoxApiBackupUtil {
                     headers: ['Content-Type':'application/x-www-form-urlencoded'],
                     body: bodyStr,
                     contentType: ContentType.APPLICATION_FORM_URLENCODED,
-                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable based on cloud settings if possible
+                    ignoreSSL: authConfig.ignoreSSL // TODO: Make this configurable based on cloud settings if possible
             )
             def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "${authConfig.v2basePath}/\${path}", null, null, opts, 'POST')
 
@@ -84,7 +84,7 @@ class ProxmoxApiBackupUtil {
                 ],
                 body: bodyPayload,
                 contentType: ContentType.APPLICATION_JSON, // TODO: Verify Content-Type; Proxmox might expect x-www-form-urlencoded for this operation.
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable
+                ignoreSSL: authConfig.ignoreSSL // TODO: Make this configurable
             )
 
             log.info("Creating Proxmox snapshot. API POST to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path} with body: \${bodyPayload}")
@@ -122,7 +122,7 @@ class ProxmoxApiBackupUtil {
                     'Cookie': "PVEAuthCookie=\${tokenCfg.token}",
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable
+                ignoreSSL: authConfig.ignoreSSL // TODO: Make this configurable
             )
 
             log.info("Deleting Proxmox snapshot. API DELETE to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
@@ -175,7 +175,7 @@ class ProxmoxApiBackupUtil {
                 ],
                 body: bodyPayload, 
                 contentType: ContentType.APPLICATION_JSON, // TODO: Verify Content-Type; Proxmox might expect x-www-form-urlencoded for this operation.
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable
+                ignoreSSL: authConfig.ignoreSSL // TODO: Make this configurable
             )
 
             log.info("Rolling back Proxmox snapshot. API POST to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
@@ -212,7 +212,7 @@ class ProxmoxApiBackupUtil {
                     'Cookie': "PVEAuthCookie=\${tokenCfg.token}",
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
-                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                ignoreSSL: authConfig.ignoreSSL
             )
 
             log.debug("Fetching Proxmox task status from \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
