@@ -13,7 +13,7 @@ import com.morpheusdata.model.projection.ComputeServerIdentityProjection
 import com.morpheusdata.proxmox.ve.ProxmoxVePlugin
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import groovy.json.JsonOutput
-import io.reactivex.Observable
+import io.reactivex.rxjava3.core.Observable
 import spock.lang.Specification
 import spock.lang.Subject
 
