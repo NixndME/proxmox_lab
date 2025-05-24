@@ -6,6 +6,7 @@ import groovy.util.logging.Slf4j
 import org.apache.http.entity.ContentType
 import groovy.json.JsonSlurper
 import com.morpheusdata.proxmox.ve.util.ProxmoxSslUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiUtil
 
 
 @Slf4j
@@ -46,7 +47,7 @@ class ProxmoxApiComputeUtil {
             log.debug("Setting VM Compute Size $vmId on node $node...")
             log.debug("POST body is: $opts.body")
             sleep(10000)
-            def results = client.callJsonApi(
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, 
                     (String) authConfig.apiUrl,
                     "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config",
                     null, null,
@@ -99,7 +100,7 @@ class ProxmoxApiComputeUtil {
             String apiPath = "${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config"
             log.debug("Setting VM Compute Size for VM ${vmId} on node ${node}. Path: ${authConfig.apiUrl}${apiPath}. Payload: ${bodyPayload}")
 
-            def results = client.callJsonApi(authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
 
             if (results.success && results.data?.data) { 
                 log.info("Successfully initiated resize for VM ${vmId} on node ${node}. Task ID: ${results.data.data}")
@@ -108,11 +109,7 @@ class ProxmoxApiComputeUtil {
                  log.warn("Resize VM ${vmId} API call on node ${node} was successful but no task ID found in results.data.data. Response (first 200 chars): ${results.content?.take(200)}")
                  return ServiceResponse.success("VM resize for ${vmId} on node ${node} reported success but no task ID was returned.", results.data ?: [:])
             } else {
-                String detail = results.msg ?: results.content ?: "No additional error detail provided by API."
-                if (detail.length() > 300) detail = detail.take(300) + "..."
-                String errorMsg = "Failed to resize VM ${vmId} on node ${node}. ErrorCode: ${results.errorCode ?: 'N/A'}. HTTP Status: ${results.statusCode ?: 'N/A'}. Detail: ${detail}"
-                log.error(errorMsg)
-                return ServiceResponse.error(errorMsg) // Return the more detailed error message
+                return ProxmoxApiUtil.validateApiResponse(results, "Failed to resize VM ${vmId} on node ${node}")
             }
         } catch (e) {
             log.error("Exception resizing VM ${vmId} on node ${node}: ${e.message}", e) // Log includes exception 'e' for stack trace
@@ -172,7 +169,7 @@ class ProxmoxApiComputeUtil {
 
             String apiPath = "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action"
             log.debug("Action VM status POST path for action '${action}' on VM ${vmId}, node ${nodeId}: ${authConfig.apiUrl}${apiPath}")
-            def results = client.callJsonApi(authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
 
             if (results.success && results.data?.data) { 
                 log.info("Successfully initiated action '${action}' for VM ${vmId} on node ${nodeId}. Task ID: ${results.data.data}")
@@ -181,11 +178,7 @@ class ProxmoxApiComputeUtil {
                 log.warn("Action '${action}' for VM ${vmId} on node ${nodeId} was successful but no task ID found in results.data.data. Response (first 200 chars): ${results.content?.take(200)}")
                 return ServiceResponse.success("Action '${action}' for VM ${vmId} on node ${nodeId} reported success but no task ID was returned.", results.data ?: [:])
             } else {
-                String detail = results.msg ?: results.content ?: "No additional error detail provided by API."
-                if (detail.length() > 300) detail = detail.take(300) + "..."
-                String errorMsg = "Failed to perform action '${action}' on VM ${vmId} on node ${nodeId}. ErrorCode: ${results.errorCode ?: 'N/A'}. HTTP Status: ${results.statusCode ?: 'N/A'}. Detail: ${detail}"
-                log.error(errorMsg)
-                return ServiceResponse.error(errorMsg)
+                return ProxmoxApiUtil.validateApiResponse(results, "Failed to perform action '${action}' on VM ${vmId} on node ${nodeId}")
             }
         } catch (e) {
             log.error("Exception performing action '${action}' on VM ${vmId} on node ${nodeId}: ${e.message}", e)
@@ -217,15 +210,16 @@ class ProxmoxApiComputeUtil {
             log.debug("Delete Opts: $opts")
             log.debug("Delete path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/")
 
-            def results = client.callJsonApi(
-                    (String) authConfig.apiUrl,
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client,
+                    authConfig.apiUrl,
                     "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/",
+                    null,
+                    null,
                     new HttpApiClient.RequestOptions(opts),
-                    'DELETE'
-            )
+                    'DELETE')
 
             log.debug("VM Delete Response Details: ${results.toMap()}")
-            return results
+            return ProxmoxApiUtil.validateApiResponse(results, "Failed to destroy VM ${vmId} on node ${nodeId}")
 
         //TODO - check for non 200 response
         } catch (e) {
@@ -272,30 +266,28 @@ class ProxmoxApiComputeUtil {
 
             log.debug("Creating blank template for attaching qcow2...")
             log.debug("Path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/")
-            def results = client.callJsonApi(
-                    (String) authConfig.apiUrl,
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(
+                    client,
+                    authConfig.apiUrl,
                     "${authConfig.v2basePath}/nodes/$nodeId/qemu/",
-                    null, null,
+                    null,
+                    null,
                     new HttpApiClient.RequestOptions(opts),
                     'POST'
             )
 
             if (results?.content) {
                 def resultData = new JsonSlurper().parseText(results.content) // resultData is likely the task ID string
-                if (results.success && resultData) { 
+                if (results.success && resultData) {
                     rtn.success = true
                     // Proxmox API for creating a VM/template returns the task ID as the direct data.
                     rtn.data = [taskId: resultData, templateId: nextId] 
                     log.info("Successfully initiated creation of image template ${imageName} (VMID ${nextId}). Task ID: ${resultData}")
                 } else {
-                    rtn.msg = results.msg ?: results.content ?: "Failed to create image template ${imageName} (VMID ${nextId}). ErrorCode: ${results.errorCode ?: 'N/A'}"
-                    log.error(rtn.msg)
-                    // rtn.success remains false
+                    rtn = ProxmoxApiUtil.validateApiResponse(results, "Failed to create image template ${imageName} (VMID ${nextId})")
                 }
             } else if (!results.success) { // No content and not successful
-                 rtn.msg = results.msg ?: "Failed to create image template ${imageName} (VMID ${nextId}) (no content). ErrorCode: ${results.errorCode ?: 'N/A'}"
-                 log.error(rtn.msg)
-                 // rtn.success remains false
+                 rtn = ProxmoxApiUtil.validateApiResponse(results, "Failed to create image template ${imageName} (VMID ${nextId})")
             } else { // Success but no content, which is unusual for a create operation that should return a task ID.
                  rtn.msg = "Create image template response for ${imageName} (VMID ${nextId}) had no content but was marked success. Assuming failure as task ID is expected."
                  log.warn(rtn.msg)
@@ -332,17 +324,18 @@ class ProxmoxApiComputeUtil {
 
             while (duration < timeout) {
                 log.info("Checking VM $vmId status on node $nodeId")
-                def results = client.callJsonApi(
-                        (String) authConfig.apiUrl,
+                def results = ProxmoxApiUtil.callJsonApiWithRetry(
+                        client,
+                        authConfig.apiUrl,
                         "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/config",
-                        null, null,
+                        null,
+                        null,
                         new HttpApiClient.RequestOptions(opts),
                         'GET'
                 )
 
                 if (!results.success) {
-                    log.error("Error checking VM clone result status.")
-                    return results
+                    return ProxmoxApiUtil.validateApiResponse(results, "Error checking VM clone result status")
                 }
 
                 def resultData = new JsonSlurper().parseText(results.content)
@@ -393,10 +386,12 @@ class ProxmoxApiComputeUtil {
             log.debug("Cloning template $templateId to VM $name($nextId) on node $nodeId")
             log.debug("Path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$templateId/clone")
             log.debug("Body data is: $opts.body")
-            def results = client.callJsonApi(
-                    (String) authConfig.apiUrl,
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(
+                    client,
+                    authConfig.apiUrl,
                     "${authConfig.v2basePath}/nodes/$nodeId/qemu/$templateId/clone",
-                    null, null,
+                    null,
+                    null,
                     new HttpApiClient.RequestOptions(opts),
                     'POST'
             )
@@ -786,7 +781,7 @@ class ProxmoxApiComputeUtil {
                     contentType: ContentType.APPLICATION_JSON,
                     ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
             )
-            def results = client.callJsonApi(authConfig.apiUrl, "${authConfig.v2basePath}/${path}", null, null, opts, 'GET')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, "${authConfig.v2basePath}/${path}", null, null, opts, 'GET')
             
             // Proxmox specific: successful list operations usually have results.data.data as a list.
             if(results?.success && results.data?.data != null) { 
@@ -809,11 +804,7 @@ class ProxmoxApiComputeUtil {
                     log.warn("callListApiV2 for path ${path}: 'data.data' was null or not present. Using 'results.data' as payload. This might be an empty list or a single item. Payload: ${results.data}")
                 }
             } else { // results.success is false
-                rtn.success = false
-                String detail = results.msg ?: results.content ?: "No additional error detail provided by API."
-                if (detail.length() > 300) detail = detail.take(300) + "..."
-                rtn.msg = "API call to ${path} failed. ErrorCode: ${results.errorCode ?: 'N/A'}. HTTP Status: ${results.statusCode ?: 'N/A'}. Detail: ${detail}"
-                log.warn("callListApiV2 failed for path ${path}: ${rtn.msg}")
+                rtn = ProxmoxApiUtil.validateApiResponse(results, "API call to ${path} failed")
             }
         } catch(e) {
             log.error("Exception in callListApiV2 for path ${path}: ${e.message}", e)
@@ -845,7 +836,7 @@ class ProxmoxApiComputeUtil {
                     contentType: ContentType.APPLICATION_FORM_URLENCODED,
                     ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
             )
-            def results = client.callJsonApi(authConfig.apiUrl,"${authConfig.v2basePath}/${path}", opts, 'POST')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl,"${authConfig.v2basePath}/${path}", null, null, opts, 'POST')
 
             // Log the raw response content for debugging, especially for auth issues
             log.debug("getApiV2Token API response raw content: ${results.content}")
@@ -890,7 +881,7 @@ class ProxmoxApiComputeUtil {
                     contentType: ContentType.APPLICATION_FORM_URLENCODED,
                     ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
             )
-            def results = client.callJsonApi(baseUrl,"${API_BASE_PATH}/${path}", opts, 'POST')
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, baseUrl,"${API_BASE_PATH}/${path}", opts, 'POST')
 
             log.debug("getApiV2Token API request results: ${results.toMap()}")
             if(results?.success && !results?.hasErrors()) {
@@ -939,7 +930,7 @@ class ProxmoxApiComputeUtil {
             )
             String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
             log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
-            def vmConfigResponse = internalClient.callJsonApi(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
+            def vmConfigResponse = ProxmoxApiUtil.callJsonApiWithRetry(internalClient,(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
 
             if (!vmConfigResponse.success || !vmConfigResponse.data?.data) {
                 log.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg} - ${vmConfigResponse.content}")
@@ -993,11 +984,12 @@ class ProxmoxApiComputeUtil {
             log.debug("Adding disk with POST to: ${authConfig.apiUrl}${configPath}")
             log.debug("POST body: ${addDiskBody}")
 
-            def addDiskResult = client.callJsonApi(
+            def addDiskResult = ProxmoxApiUtil.callJsonApiWithRetry(
+                client,
                 authConfig.apiUrl,
                 configPath,
-                null, // queryParams
-                null, // body (using RequestOptions.body instead)
+                null,
+                null,
                 addDiskOpts,
                 'POST'
             )
@@ -1011,8 +1003,7 @@ class ProxmoxApiComputeUtil {
                 log.info("Successfully initiated add disk operation for ${vmId}. Disk: ${newDiskParamName}, Task ID: ${addDiskResult.data?.data}")
                 return ServiceResponse.success("Disk ${newDiskParamName} added successfully. Task ID: ${addDiskResult.data?.data}", [taskId: addDiskResult.data?.data])
             } else {
-                log.error("Failed to add disk ${newDiskParamName} to VM ${vmId}: ${addDiskResult.msg} - ${addDiskResult.content}")
-                return ServiceResponse.error("Failed to add disk ${newDiskParamName}: ${addDiskResult.msg ?: addDiskResult.content}")
+                return ProxmoxApiUtil.validateApiResponse(addDiskResult, "Failed to add disk ${newDiskParamName} to VM ${vmId}")
             }
 
         } catch (e) {
@@ -1048,7 +1039,7 @@ class ProxmoxApiComputeUtil {
             )
             String configPath = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/config"
             log.debug("Getting VM config from: ${authConfig.apiUrl}${configPath}")
-            def vmConfigResponse = internalClient.callJsonApi(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
+            def vmConfigResponse = ProxmoxApiUtil.callJsonApiWithRetry(internalClient,(authConfig.apiUrl, configPath, null, null, vmConfigOpts, 'GET')
 
             if (!vmConfigResponse.success || !vmConfigResponse.data?.data) {
                 log.error("Failed to get VM config for ${vmId}: ${vmConfigResponse.msg} - ${vmConfigResponse.content}")
@@ -1102,11 +1093,12 @@ class ProxmoxApiComputeUtil {
             log.debug("Adding NIC with POST to: ${authConfig.apiUrl}${configPath}")
             log.debug("POST body: ${addNicBody}")
 
-            def addNicResult = client.callJsonApi(
+            def addNicResult = ProxmoxApiUtil.callJsonApiWithRetry(
+                client,
                 authConfig.apiUrl,
                 configPath,
-                null, 
-                null, 
+                null,
+                null,
                 addNicOpts,
                 'POST'
             )
@@ -1117,8 +1109,7 @@ class ProxmoxApiComputeUtil {
                 log.info("Successfully initiated add NIC operation for ${vmId}. NIC: ${newNicParamName}, Task ID: ${addNicResult.data?.data}")
                 return ServiceResponse.success("Network interface ${newNicParamName} added successfully. Task ID: ${addNicResult.data?.data}", [taskId: addNicResult.data?.data])
             } else {
-                log.error("Failed to add NIC ${newNicParamName} to VM ${vmId}: ${addNicResult.msg} - ${addNicResult.content}")
-                return ServiceResponse.error("Failed to add NIC ${newNicParamName}: ${addNicResult.msg ?: addNicResult.content}")
+                return ProxmoxApiUtil.validateApiResponse(addNicResult, "Failed to add NIC ${newNicParamName} to VM ${vmId}")
             }
 
         } catch (e) {
@@ -1178,11 +1169,12 @@ class ProxmoxApiComputeUtil {
             log.debug("Requesting ${consoleType} console with POST to: ${authConfig.apiUrl}${apiPath}")
             log.debug("POST body: ${requestBody}")
 
-            def consoleResult = client.callJsonApi(
+            def consoleResult = ProxmoxApiUtil.callJsonApiWithRetry(
+                client,
                 authConfig.apiUrl,
                 apiPath,
-                null, // queryParams
-                null, // body (using RequestOptions.body instead for POST)
+                null,
+                null,
                 consoleOpts,
                 'POST'
             )
@@ -1201,9 +1193,7 @@ class ProxmoxApiComputeUtil {
                 log.info("Successfully requested ${consoleType} console for VM ${vmId}. Details: ${consoleData}")
                 return ServiceResponse.success("Console information retrieved successfully.", consoleData)
             } else {
-                String errorMsg = consoleResult.msg ?: consoleResult.content ?: "Failed to retrieve console information."
-                log.error("Failed to request ${consoleType} console for VM ${vmId}: ${errorMsg}")
-                return ServiceResponse.error("Failed to request ${consoleType} console: ${errorMsg}")
+                return ProxmoxApiUtil.validateApiResponse(consoleResult, "Failed to request ${consoleType} console for VM ${vmId}")
             }
 
         } catch (e) {
@@ -1260,7 +1250,7 @@ class ProxmoxApiComputeUtil {
             log.debug("Creating snapshot with POST to: ${authConfig.apiUrl}${path}")
             log.debug("POST body: ${requestBody}")
 
-            def results = client.callJsonApi(
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, 
                 authConfig.apiUrl,
                 path,
                 null,
@@ -1306,7 +1296,7 @@ class ProxmoxApiComputeUtil {
 
             log.debug("Deleting snapshot with DELETE to: ${authConfig.apiUrl}${path}")
 
-            def results = client.callJsonApi(
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, 
                 authConfig.apiUrl,
                 path,
                 null,
@@ -1354,7 +1344,7 @@ class ProxmoxApiComputeUtil {
 
             log.debug("Rolling back snapshot with POST to: ${authConfig.apiUrl}${path}")
 
-            def results = client.callJsonApi(
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, 
                 authConfig.apiUrl,
                 path,
                 null,
@@ -1415,7 +1405,7 @@ class ProxmoxApiComputeUtil {
             log.debug("POST body: ${requestBody}")
 
             // 5. Make the API Call
-            def results = client.callJsonApi(
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, 
                 authConfig.apiUrl,
                 configPath,
                 null, // queryParams
@@ -1483,7 +1473,7 @@ class ProxmoxApiComputeUtil {
             log.debug("POST body: ${requestBody}")
 
             // 5. Make the API Call
-            def results = client.callJsonApi(
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, 
                 authConfig.apiUrl,
                 configPath,
                 null, // queryParams
@@ -1569,7 +1559,7 @@ class ProxmoxApiComputeUtil {
             log.debug("POST body: ${requestBody}")
 
             // 6. Make the API Call
-            def results = client.callJsonApi(
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, 
                 authConfig.apiUrl,
                 configPath,
                 null, // queryParams
