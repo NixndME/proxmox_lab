@@ -1697,4 +1697,53 @@ class ProxmoxApiComputeUtil {
             return ServiceResponse.error("Error converting VM ${vmId} to template: ${e.message}")
         }
     }
+
+    /**
+     * Lists Proxmox clusters and summarizes node statistics. This leverages the
+     * `/cluster/resources` endpoint which returns nodes and their current
+     * resource usage. The results are grouped by cluster name.
+     *
+     * @param client the API client to use
+     * @param authConfig authentication configuration map
+     * @return ServiceResponse containing a list of clusters. Each cluster map
+     *         includes name, roles, nodeCount and aggregate resource data.
+     */
+    static ServiceResponse listProxmoxClusters(HttpApiClient client, Map authConfig) {
+        log.debug("listProxmoxClusters...")
+
+        ServiceResponse resourceResp = callListApiV2(client, "cluster/resources", authConfig)
+        if(!resourceResp.success)
+            return resourceResp
+
+        Map<String, Map> clusterMap = [:]
+        resourceResp.data?.each { Map item ->
+            if(item?.type == 'node') {
+                String clusterName = item.cluster ?: 'proxmox'
+                Map cluster = clusterMap.get(clusterName)
+                if(!cluster) {
+                    cluster = [name: clusterName, roles: [], nodeCount: 0,
+                              maxcpu:0L, maxmem:0L, maxdisk:0L, cpu:0L, mem:0L, disk:0L]
+                    clusterMap[clusterName] = cluster
+                }
+                cluster.nodeCount = cluster.nodeCount + 1
+                if(item.level)
+                    cluster.roles << item.level
+                if(item.role)
+                    cluster.roles << item.role
+                cluster.maxcpu += (item.maxcpu ?: 0L)
+                cluster.maxmem += (item.maxmem ?: 0L)
+                cluster.maxdisk += (item.maxdisk ?: 0L)
+                cluster.cpu += (item.cpu ?: 0L)
+                cluster.mem += (item.mem ?: 0L)
+                cluster.disk += (item.disk ?: 0L)
+            }
+        }
+
+        List clusters = clusterMap.values().collect { Map c ->
+            c.roles = c.roles.unique()
+            return c
+        }
+
+        return new ServiceResponse(success: true, data: clusters)
+    }
 }
