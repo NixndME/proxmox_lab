@@ -117,7 +117,50 @@ class ProxmoxApiComputeUtilSpec extends Specification {
     }
 
     // Conceptual tests for addVMDisk/addVMNetworkInterface (index finding) might go here if refactored
-    // Conceptual tests for requestVMConsole might go here
+
+    def "test requestVMConsole vnc success"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def consoleDetails = [user: 'root@pam', ticket: 'ticket123', port: '5900', host: '::1']
+        def mockApiResponse = new ServiceResponse(success: true, data: [data: consoleDetails])
+        mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/node1/qemu/200/vncproxy",
+            null,
+            null,
+            { it.headers['Cookie'] == "PVEAuthCookie=faketoken" && it.headers['CSRFPreventionToken'] == "fakecsrftoken" && it.body == [:] },
+            'POST'
+        ) >> mockApiResponse
+
+        when:
+        def response = ProxmoxApiComputeUtil.requestVMConsole(mockClient, authConfig, 'node1', '200', 'vnc')
+
+        then:
+        response.success
+        response.data.ticket == 'ticket123'
+        response.data.type == 'vnc'
+        response.data.proxmoxHost == 'localhost'
+        response.data.proxmoxPort == 8006
+    }
+
+    def "test requestVMConsole unsupported type"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+
+        when:
+        def response = ProxmoxApiComputeUtil.requestVMConsole(mockClient, authConfig, 'node1', '200', 'spice')
+
+        then:
+        !response.success
+        response.msg.contains('Unsupported console type')
+        0 * mockClient.callJsonApi(_, _, _, _, _, _)
+    }
 
     // Snapshot Management Tests
     def "test listSnapshots success"() {
