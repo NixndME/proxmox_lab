@@ -46,3 +46,15 @@ resource "option-type" "proxmox-migration-node" {
   required = true
   optionSource = "proxmoxVeDestinationNode"
 }
+
+resource "option-type" "proxmox-instance-size" {
+  name         = "Instance Size"
+  code         = "instanceType.proxmox.plan"
+  fieldName    = "servicePlan"
+  fieldContext = "config"
+  fieldLabel   = "Instance Size"
+  type         = "select"
+  displayOrder = 104
+  required     = true
+  optionSource = "proxmoxVeInstanceSizes"
+}
