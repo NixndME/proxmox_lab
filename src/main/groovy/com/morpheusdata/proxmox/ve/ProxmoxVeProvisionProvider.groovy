@@ -359,10 +359,14 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 		server.cloud = cloud
 		server = saveAndGet(server)
 
-		log.info("Provisioning/cloning: ${workload.getInstance().name} from Image Id: $imageExternalId on node: $nodeId")
-		log.info("Provisioning/cloning: ${workload.getInstance().name} with $server.coresPerSocket cores and $server.maxMemory memory")
-		ServiceResponse rtnClone = ProxmoxApiComputeUtil.cloneTemplate(client, authConfig, imageExternalId, workload.getInstance().name, nodeId, server.maxCores, server.maxMemory)
-		log.debug("VM Clone done. Results: $rtnClone")
+                log.info("Cloning template '${virtualImage?.name}' (ID: ${imageExternalId}) to instance '${workload.getInstance().name}' on node ${nodeId}")
+                log.info("Clone spec: ${server.coresPerSocket} cores, ${server.maxMemory} memory")
+                ServiceResponse rtnClone = ProxmoxApiComputeUtil.cloneTemplate(client, authConfig, imageExternalId, workload.getInstance().name, nodeId, server.maxCores, server.maxMemory)
+                if(rtnClone.success) {
+                        log.info("Clone request successful for VM ID ${rtnClone.data?.vmId}")
+                } else {
+                        log.error("Clone API error for template ${imageExternalId} on node ${nodeId}: ${rtnClone.msg}")
+                }
 
 		server.internalId = rtnClone.data.vmId
 		server.externalId = rtnClone.data.vmId
