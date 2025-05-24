@@ -38,7 +38,6 @@ class ProxmoxApiComputeUtil {
             ]
 
             log.debug("Setting VM Compute Size $vmId on node $node...")
-            log.debug("POST path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$node/qemu/$vmId/config")
             log.debug("POST body is: $opts.body")
             sleep(10000)
             def results = client.callJsonApi(
