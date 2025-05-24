@@ -3,6 +3,8 @@ package com.morpheusdata.proxmox.ve
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.backup.BackupRestoreProvider
 import com.morpheusdata.core.backup.response.BackupRestoreResponse
+import com.morpheusdata.model.Backup
+import com.morpheusdata.model.BackupRestore
 import com.morpheusdata.model.BackupResult
 import com.morpheusdata.model.Cloud
 import com.morpheusdata.model.ComputeServer
@@ -138,34 +140,89 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
      */
 
     @Override
-    ServiceResponse configureRestoreBackup(BackupResult backupResult, Instance instance, ComputeServer server, Map config, Map opts) {
+    ServiceResponse configureRestoreBackup(BackupResult backupResult, Map config, Map opts) {
+        Instance instance
+        ComputeServer server
+        Workload workload
+        if(backupResult.containerId) {
+            workload = morpheusContext.services.workload.get(backupResult.containerId).blockingGet()
+            if(workload?.serverId) {
+                server = morpheusContext.services.computeServer.get(workload.serverId).blockingGet()
+            }
+            if(workload?.instanceId) {
+                instance = morpheusContext.services.instance.get(workload.instanceId).blockingGet()
+            }
+        } else if(backupResult.server?.id) {
+            server = morpheusContext.services.computeServer.get(backupResult.server.id).blockingGet()
+        }
         return prepareRestore(backupResult, instance, server, config, opts)
     }
 
     @Override
-    ServiceResponse validateRestoreBackup(BackupResult backupResult, Instance instance, ComputeServer server, Map config, Map opts) {
-        return validateRestore(backupResult, instance, server, config, opts)
+    ServiceResponse validateRestoreBackup(BackupResult backupResult, Map opts) {
+        Instance instance
+        ComputeServer server
+        if(backupResult.containerId) {
+            Workload container = morpheusContext.services.workload.get(backupResult.containerId).blockingGet()
+            if(container?.serverId) {
+                server = morpheusContext.services.computeServer.get(container.serverId).blockingGet()
+            }
+            if(container?.instanceId) {
+                instance = morpheusContext.services.instance.get(container.instanceId).blockingGet()
+            }
+        } else if(backupResult.server?.id) {
+            server = morpheusContext.services.computeServer.get(backupResult.server.id).blockingGet()
+        }
+        return validateRestore(backupResult, instance, server, [:], opts)
     }
 
     @Override
-    ServiceResponse<Map<String,Object>> getRestoreOptions(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
+    ServiceResponse<Map<String,Object>> getRestoreOptions(Backup backup, Map opts) {
         // No custom options for now
         return ServiceResponse.success([:])
     }
 
     @Override
-    Map<String,Object> getBackupRestoreInstanceConfig(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
+    Map<String,Object> getBackupRestoreInstanceConfig(BackupResult backupResult, Instance instance, Map config, Map opts) {
         // Return an empty config map; override if provider needs specific values
         return [:]
     }
 
     @Override
-    ServiceResponse<BackupRestoreResponse> restoreBackup(BackupResult backupResult, Instance instance, Workload workload, ComputeServer server, Map<String,Object> config, Map<String,Object> opts) {
+    ServiceResponse<BackupRestoreResponse> restoreBackup(BackupRestore backupRestore, BackupResult backupResult, Backup backup, Map opts) {
+        Instance instance
+        ComputeServer server
+        Workload workload
+        if(backupResult.containerId) {
+            workload = morpheusContext.services.workload.get(backupResult.containerId).blockingGet()
+            if(workload?.serverId) {
+                server = morpheusContext.services.computeServer.get(workload.serverId).blockingGet()
+            }
+            if(workload?.instanceId) {
+                instance = morpheusContext.services.instance.get(workload.instanceId).blockingGet()
+            }
+        } else if(backupResult.server?.id) {
+            server = morpheusContext.services.computeServer.get(backupResult.server.id).blockingGet()
+        }
+        Map<String,Object> config = opts ?: [:]
         return executeRestore(backupResult, instance, workload, server, config, opts)
     }
 
     @Override
-    ServiceResponse<BackupRestoreResponse> refreshBackupRestoreResult(BackupResult backupResult, Instance instance, ComputeServer server, Map opts) {
-        return refreshRestore(backupResult, instance, server, opts)
+    ServiceResponse<BackupRestoreResponse> refreshBackupRestoreResult(BackupRestore backupRestore, BackupResult backupResult) {
+        Instance instance
+        ComputeServer server
+        if(backupResult.containerId) {
+            Workload container = morpheusContext.services.workload.get(backupResult.containerId).blockingGet()
+            if(container?.serverId) {
+                server = morpheusContext.services.computeServer.get(container.serverId).blockingGet()
+            }
+            if(container?.instanceId) {
+                instance = morpheusContext.services.instance.get(container.instanceId).blockingGet()
+            }
+        } else if(backupResult.server?.id) {
+            server = morpheusContext.services.computeServer.get(backupResult.server.id).blockingGet()
+        }
+        return refreshRestore(backupResult, instance, server, [:])
     }
 }
