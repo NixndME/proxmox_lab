@@ -12,6 +12,10 @@ import com.morpheusdata.model.NetworkSubnet
 import com.morpheusdata.model.NetworkType
 import com.morpheusdata.model.OptionType
 import com.morpheusdata.response.ServiceResponse
+import com.morpheusdata.core.util.HttpApiClient
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxSslUtil
+import org.apache.http.entity.ContentType
 import groovy.util.logging.Slf4j
 
 @Slf4j
@@ -131,12 +135,77 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 	 * @param network Network information
 	 * @param opts additional configuration options
 	 * @return ServiceResponse
-	 */
-	@Override
-	ServiceResponse createNetwork(Network network, Map opts) {
-		log.info("NVR: CREATE NETWORK")
-		return ServiceResponse.success(network)
-	}
+        */
+        @Override
+        ServiceResponse createNetwork(Network network, Map opts) {
+                log.info("NVR: CREATE NETWORK ${network?.name}")
+                ServiceResponse rtn = ServiceResponse.prepare()
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Cloud cloud = network.cloud
+                        if(!cloud) {
+                                rtn.success = false
+                                rtn.msg = "Network cloud is missing"
+                                return rtn
+                        }
+
+                        Map authConfig = plugin.getAuthConfig(cloud)
+
+                        ServiceResponse hostsResponse = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(client, authConfig)
+                        if(!hostsResponse.success) {
+                                rtn.success = false
+                                rtn.msg = "Failed to list Proxmox nodes: ${hostsResponse.msg}"
+                                return rtn
+                        }
+
+                        boolean allSuccess = true
+                        hostsResponse.data.each { host ->
+                                def tokenResp = ProxmoxApiComputeUtil.getApiV2Token(authConfig)
+                                if(!tokenResp.success) {
+                                        allSuccess = false
+                                        rtn.msg = tokenResp.msg
+                                        return
+                                }
+                                def tokenCfg = tokenResp.data
+                                def body = [iface:(network.externalId ?: network.name), type:'bridge']
+                                if(network.cidr)
+                                        body.cidr = network.cidr
+                                if(network.gateway)
+                                        body.gateway = network.gateway
+
+                                def optsReq = new HttpApiClient.RequestOptions(
+                                        headers:[
+                                                'Content-Type':'application/json',
+                                                'Cookie':"PVEAuthCookie=${tokenCfg.token}",
+                                                'CSRFPreventionToken': tokenCfg.csrfToken
+                                        ],
+                                        body: body,
+                                        contentType: ContentType.APPLICATION_JSON,
+                                        ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                                )
+
+                                def results = client.callJsonApi(authConfig.apiUrl,
+                                        "${authConfig.v2basePath}/nodes/${host.node}/network",
+                                        null, null, optsReq, 'POST')
+
+                                if(!results.success) {
+                                        allSuccess = false
+                                        rtn.msg = "Failed creating network on ${host.node}: ${results.msg ?: results.content}"
+                                }
+                        }
+
+                        rtn.success = allSuccess
+                        if(allSuccess)
+                                rtn.data = network
+                } catch(Exception e) {
+                        rtn.success = false
+                        rtn.msg = "Error creating network: ${e.message}"
+                        log.error("createNetwork error", e)
+                } finally {
+                        client.shutdownClient()
+                }
+                return rtn
+        }
 
 	/**
 	 * Updates the Network submitted
@@ -144,22 +213,144 @@ class ProxmoxNetworkProvider implements NetworkProvider, CloudInitializationProv
 	 * @param opts additional configuration options
 	 * @return ServiceResponse
 	 */
-	@Override
-	ServiceResponse<Network> updateNetwork(Network network, Map opts) {
-		log.info("NVR: UPDATE NETWORK")
-		return ServiceResponse.success(network)
-	}
+        @Override
+        ServiceResponse<Network> updateNetwork(Network network, Map opts) {
+                log.info("NVR: UPDATE NETWORK ${network?.name}")
+                ServiceResponse rtn = ServiceResponse.prepare()
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Cloud cloud = network.cloud
+                        if(!cloud) {
+                                rtn.success = false
+                                rtn.msg = "Network cloud is missing"
+                                return rtn
+                        }
+
+                        Map authConfig = plugin.getAuthConfig(cloud)
+
+                        ServiceResponse hostsResponse = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(client, authConfig)
+                        if(!hostsResponse.success) {
+                                rtn.success = false
+                                rtn.msg = "Failed to list Proxmox nodes: ${hostsResponse.msg}"
+                                return rtn
+                        }
+
+                        boolean allSuccess = true
+                        hostsResponse.data.each { host ->
+                                def tokenResp = ProxmoxApiComputeUtil.getApiV2Token(authConfig)
+                                if(!tokenResp.success) {
+                                        allSuccess = false
+                                        rtn.msg = tokenResp.msg
+                                        return
+                                }
+                                def tokenCfg = tokenResp.data
+                                def body = [:]
+                                if(network.cidr)
+                                        body.cidr = network.cidr
+                                if(network.gateway)
+                                        body.gateway = network.gateway
+
+                                def optsReq = new HttpApiClient.RequestOptions(
+                                        headers:[
+                                                'Content-Type':'application/json',
+                                                'Cookie':"PVEAuthCookie=${tokenCfg.token}",
+                                                'CSRFPreventionToken': tokenCfg.csrfToken
+                                        ],
+                                        body: body,
+                                        contentType: ContentType.APPLICATION_JSON,
+                                        ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                                )
+
+                                def results = client.callJsonApi(authConfig.apiUrl,
+                                        "${authConfig.v2basePath}/nodes/${host.node}/network/${network.externalId ?: network.name}",
+                                        null, null, optsReq, 'PUT')
+
+                                if(!results.success) {
+                                        allSuccess = false
+                                        rtn.msg = "Failed updating network on ${host.node}: ${results.msg ?: results.content}"
+                                }
+                        }
+
+                        rtn.success = allSuccess
+                        if(allSuccess)
+                                rtn.data = network
+                } catch(Exception e) {
+                        rtn.success = false
+                        rtn.msg = "Error updating network: ${e.message}"
+                        log.error("updateNetwork error", e)
+                } finally {
+                        client.shutdownClient()
+                }
+                return rtn
+        }
 
 	/**
 	 * Deletes the Network submitted
 	 * @param network Network information
 	 * @return ServiceResponse
 	 */
-	@Override
-	ServiceResponse deleteNetwork(Network network, Map opts) {
-		log.info("NVR: DELETE NETWORK")
-		return ServiceResponse.success()
-	}
+        @Override
+        ServiceResponse deleteNetwork(Network network, Map opts) {
+                log.info("NVR: DELETE NETWORK ${network?.name}")
+                ServiceResponse rtn = ServiceResponse.prepare()
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Cloud cloud = network.cloud
+                        if(!cloud) {
+                                rtn.success = false
+                                rtn.msg = "Network cloud is missing"
+                                return rtn
+                        }
+
+                        Map authConfig = plugin.getAuthConfig(cloud)
+
+                        ServiceResponse hostsResponse = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(client, authConfig)
+                        if(!hostsResponse.success) {
+                                rtn.success = false
+                                rtn.msg = "Failed to list Proxmox nodes: ${hostsResponse.msg}"
+                                return rtn
+                        }
+
+                        boolean allSuccess = true
+                        hostsResponse.data.each { host ->
+                                def tokenResp = ProxmoxApiComputeUtil.getApiV2Token(authConfig)
+                                if(!tokenResp.success) {
+                                        allSuccess = false
+                                        rtn.msg = tokenResp.msg
+                                        return
+                                }
+                                def tokenCfg = tokenResp.data
+
+                                def optsReq = new HttpApiClient.RequestOptions(
+                                        headers:[
+                                                'Content-Type':'application/json',
+                                                'Cookie':"PVEAuthCookie=${tokenCfg.token}",
+                                                'CSRFPreventionToken': tokenCfg.csrfToken
+                                        ],
+                                        contentType: ContentType.APPLICATION_JSON,
+                                        ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                                )
+
+                                def results = client.callJsonApi(authConfig.apiUrl,
+                                        "${authConfig.v2basePath}/nodes/${host.node}/network/${network.externalId ?: network.name}",
+                                        null, null, optsReq, 'DELETE')
+
+                                if(!results.success) {
+                                        allSuccess = false
+                                        rtn.msg = "Failed deleting network on ${host.node}: ${results.msg ?: results.content}"
+                                }
+                        }
+
+                        rtn.success = allSuccess
+                } catch(Exception e) {
+                        rtn.success = false
+                        rtn.msg = "Error deleting network: ${e.message}"
+                        log.error("deleteNetwork error", e)
+                } finally {
+                        client.shutdownClient()
+                }
+                return rtn
+        }
 	
 	@Override
 	ServiceResponse createSubnet(NetworkSubnet subnet, Network network, Map opts) {
