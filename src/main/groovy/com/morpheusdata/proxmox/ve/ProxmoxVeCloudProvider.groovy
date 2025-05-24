@@ -29,6 +29,12 @@ import com.morpheusdata.request.ValidateCloudRequest
 import com.morpheusdata.response.ServiceResponse
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import com.morpheusdata.proxmox.ve.sync.VMSync
+import com.morpheusdata.proxmox.ve.util.ProxmoxApiUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxSslUtil
+import com.morpheusdata.model.ConsoleAccess
+import org.apache.http.entity.ContentType
+import java.net.URI
+import java.net.URLEncoder
 import groovy.util.logging.Slf4j
 
 
@@ -131,6 +137,17 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 				localCredential: true,
 				required: true
 		)
+                options << new OptionType(
+                                name: 'Enable Console Access',
+                                code: 'proxmox-enable-console',
+                                displayOrder: 4,
+                                fieldContext: 'config',
+                                fieldLabel: 'Enable Console Access',
+                                fieldName: 'enableConsoleAccess',
+                                inputType: OptionType.InputType.CHECKBOX,
+                                defaultValue: false,
+                                required: false
+                )
 /*		options << new OptionType(
 				name: 'Proxmox Token',
 				code: 'proxmox-token',
@@ -490,10 +507,15 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 * Indicates if the cloud supports the distributed worker functionality
 	 * @return Boolean
 	 */
-	@Override
-	Boolean supportsDistributedWorker() {
-		return false
-	}
+        @Override
+        Boolean supportsDistributedWorker() {
+                return false
+        }
+
+        @Override
+        Boolean supportsConsoleAccess() {
+                return true
+        }
 
 	/**
 	 * Called when a server should be started. Returning a response of success will cause corresponding updates to usage
@@ -869,89 +891,81 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 * @param opts Additional options map (may specify console type preference in the future).
 	 * @return ServiceResponse containing a map with console details (e.g., url, type, ticket).
 	 */
-	ServiceResponse getVmConsoleDetails(ComputeServer server, Map opts) {
-		log.info("ProxmoxVeCloudProvider.getVmConsoleDetails called for server: ${server?.id} (${server?.name}) with opts: ${opts}")
-		HttpApiClient client = new HttpApiClient()
-		try {
-			// Basic input validation
-			if (server == null) {
-				return ServiceResponse.error("ComputeServer cannot be null.")
-			}
-			if (server.cloud == null) {
-				return ServiceResponse.error("ComputeServer cloud information is missing.")
-			}
+       ServiceResponse getVmConsoleDetails(ComputeServer server, Map opts) {
+               log.info("ProxmoxVeCloudProvider.getVmConsoleDetails called for server: ${server?.id} (${server?.name}) with opts: ${opts}")
+               HttpApiClient client = new HttpApiClient()
+               try {
+                       if(!server?.managed) {
+                               return ServiceResponse.error("Console access only supported for managed VMs")
+                       }
+                       if(!server?.cloud) {
+                               return ServiceResponse.error("ComputeServer cloud information is missing.")
+                       }
+                       if(!server.cloud.configMap?.enableConsoleAccess?.toString()?.toBoolean()) {
+                               return ServiceResponse.error("Console access not enabled on cloud")
+                       }
 
-			Map authConfig = plugin.getAuthConfig(server.cloud)
-			String vmId = server.externalId
-			String nodeName = server.parentServer?.name
+                       Map authConfig = plugin.getAuthConfig(server.cloud)
+                       String vmId = server.externalId
+                       if(!vmId)
+                               return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
 
-			if (vmId == null || vmId.isEmpty()) {
-				return ServiceResponse.error("Missing externalId (VM ID) for server ${server.name}")
-			}
+                       String nodeName = server.parentServer?.name
+                       if(!nodeName) {
+                               log.debug("Looking up node for VM ${vmId}")
+                               def vmsList = ProxmoxApiComputeUtil.listVMs(client, authConfig)?.data
+                               def foundVm = vmsList?.find { it.vmid.toString() == vmId }
+                               if(foundVm?.node) {
+                                       nodeName = foundVm.node
+                               } else {
+                                       return ServiceResponse.error("Unable to determine Proxmox node for VM ${vmId}")
+                               }
+                       }
 
-			// Fallback for nodeName if parentServer is not set
-			if (nodeName == null || nodeName.isEmpty()) {
-				log.warn("parentServer.name is null for ComputeServer ${server.id} (${server.name}). Attempting to find node for VM ID ${vmId}.")
-				HttpApiClient tempClient = new HttpApiClient()
-				try {
-					def vmsList = ProxmoxApiComputeUtil.listVMs(tempClient, authConfig)?.data
-					def foundVm = vmsList?.find { it.vmid.toString() == vmId }
-					if (foundVm?.node) {
-						nodeName = foundVm.node
-						log.info("Found node '${nodeName}' for VM ID ${vmId} by querying Proxmox API.")
-					} else {
-						return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${server.name} and could not find it via API.")
-					}
-				} finally {
-					tempClient?.shutdownClient()
-				}
-			}
+                       ServiceResponse tokenResp = ProxmoxApiComputeUtil.getApiV2Token(authConfig)
+                       if(!tokenResp.success)
+                               return tokenResp
+                       def tokenCfg = tokenResp.data
 
-			// Determine console type - default to VNC for now
-			// String consoleType = opts?.consoleType ?: server.guestConsoleType?.toString() ?: 'vnc'
-			// For this initial implementation, we are focusing on VNC.
-			String consoleType = 'vnc' 
-			log.info("Requesting console of type '${consoleType}' for VM ${vmId} on node ${nodeName}")
+                       String path = "${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/vncproxy"
+                       def body = [websocket: 1]
+                       def optsReq = new HttpApiClient.RequestOptions(
+                               headers: [
+                                       'Content-Type':'application/json',
+                                       'Cookie': "PVEAuthCookie=${tokenCfg.token}",
+                                       'CSRFPreventionToken': tokenCfg.csrfToken
+                               ],
+                               body: body,
+                               contentType: ContentType.APPLICATION_JSON,
+                               ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+                       )
 
-			ServiceResponse consoleApiResponse = ProxmoxApiComputeUtil.requestVMConsole(client, authConfig, nodeName, vmId, consoleType)
+                       log.debug("POST ${authConfig.apiUrl}${path} body ${body}")
+                       ServiceResponse apiResp = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, path, null, null, optsReq, 'POST')
+                       if(!apiResp.success)
+                               return ProxmoxApiUtil.validateApiResponse(apiResp, "Failed to start console for VM ${vmId}")
 
-			if (!consoleApiResponse.success) {
-				log.error("Failed to get console details from Proxmox API: ${consoleApiResponse.msg}")
-				return consoleApiResponse // Propagate the error
-			}
+                       Map data = apiResp.data?.data
+                       if(!data?.port || !data?.vncticket)
+                               return ServiceResponse.error("Proxmox API did not return port or ticket")
 
-			Map consoleData = consoleApiResponse.data
-			if (consoleData == null || !consoleData.ticket || !consoleData.proxmoxHost || !consoleData.proxmoxPort) {
-				log.error("Proxmox API response for console is missing required data (ticket, proxmoxHost, proxmoxPort). Data: ${consoleData}")
-				return ServiceResponse.error("Proxmox API response for console is missing required data.")
-			}
+                       URI baseUri = new URI(authConfig.apiUrl)
+                       String host = baseUri.host
+                       int uiPort = baseUri.port != -1 ? baseUri.port : 8006
+                       String scheme = baseUri.scheme == 'https' ? 'wss' : 'ws'
+                       String wsUrl = "${scheme}://${host}:${uiPort}${authConfig.v2basePath}/nodes/${nodeName}/qemu/${vmId}/vncwebsocket?port=${data.port}&vncticket=${URLEncoder.encode(data.vncticket.toString(), 'UTF-8')}"
 
-			// Construct the noVNC URL
-			// Example: https://{proxmoxHost}:{proxmoxUIPort}/?console=qemu&novnc=1&vmid={vmid}&node={nodeName}&vncticket={ticket}
-			// The proxmoxPort here is the main Proxmox web UI port (e.g., 8006)
-			String scheme = new URL(authConfig.apiUrl).getProtocol()
-			String consoleUrl = "${scheme}://${consoleData.proxmoxHost}:${consoleData.proxmoxPort}/?console=qemu&novnc=1&vmid=${vmId}&node=${nodeName}&vncticket=${consoleData.ticket}"
-			
-			Map morpheusConsoleDetails = [
-				url: consoleUrl,
-				type: consoleType, // 'vnc'
-				ticket: consoleData.ticket,
-				username: consoleData.user, // Proxmox vncproxy provides 'user'
-				// password: consoleData.ticket, // Often ticket is used as password for noVNC
-				// port: consoleData.port, // This is the websocket port, not usually needed in the final URL for noVNC via Proxmox UI
-				// host: consoleData.proxmoxHost // Redundant if in URL
-			]
+                       ConsoleAccess access = new ConsoleAccess(consoleType: 'vnc', targetHost: host, port: data.port as Integer, ticket: data.vncticket.toString(), webSocketUrl: wsUrl)
+                       log.debug("Console access prepared: ${access.toMap()}")
+                       return ServiceResponse.success(access)
 
-			log.info("Successfully prepared console details for VM ${vmId}: ${morpheusConsoleDetails}")
-			return ServiceResponse.success("Console details retrieved.", morpheusConsoleDetails)
-
-		} catch (e) {
-			log.error("Error in getVmConsoleDetails for VM ${server?.externalId}: ${e.message}", e)
-			return ServiceResponse.error("Error getting console details for server ${server?.name}: ${e.message}")
-		} finally {
-			client?.shutdownClient()
-		}
-	}
+               } catch(e) {
+                       log.error("Error in getVmConsoleDetails for VM ${server?.externalId}: ${e.message}", e)
+                       return ServiceResponse.error("Error getting console details for server ${server?.name}: ${e.message}")
+               } finally {
+                       client?.shutdownClient()
+               }
+       }
 
 	ServiceResponse listVMSnapshots(ComputeServer server) {
 		log.info("ProxmoxVeCloudProvider.listVMSnapshots called for server: ${server?.id} (${server?.name})")
