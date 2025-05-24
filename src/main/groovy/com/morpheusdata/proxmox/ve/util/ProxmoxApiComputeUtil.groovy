@@ -165,10 +165,7 @@ class ProxmoxApiComputeUtil {
                     ignoreSSL: true
             ]
 
-            log.debug("Post path is: $authConfig.apiUrl${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action/")
-            String apiPath = "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action/"
-            log.debug("Action VM status POST path: ${authConfig.apiUrl}${apiPath}")
-            String apiPath = "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action" 
+            String apiPath = "${authConfig.v2basePath}/nodes/$nodeId/qemu/$vmId/status/$action"
             log.debug("Action VM status POST path for action '${action}' on VM ${vmId}, node ${nodeId}: ${authConfig.apiUrl}${apiPath}")
             def results = client.callJsonApi(authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
 
