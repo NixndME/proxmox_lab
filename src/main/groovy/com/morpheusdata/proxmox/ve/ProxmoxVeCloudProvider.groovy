@@ -254,12 +254,12 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	Collection<ComputeServerType> getComputeServerTypes() {
 		Collection<ComputeServerType> serverTypes = []
 
-		serverTypes << new ComputeServerType (
-				name: 'Proxmox VE Node',
-				code: 'proxmox-ve-node',
-				description: 'Proxmox VE Node',
-				vmHypervisor: true,
-				controlPower: false,
+                serverTypes << new ComputeServerType (
+                                name: 'Proxmox VE Node',
+                                code: 'proxmox-ve-node',
+                                description: 'Proxmox VE Node',
+                                vmHypervisor: true,
+                                controlPower: true,
 				reconfigureSupported: false,
 				externalDelete: false,
 				hasAutomation: false,
@@ -520,12 +520,16 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 * @return ServiceResponse
 	 */
 	@Override
-	ServiceResponse startServer(ComputeServer computeServer) {
-		HttpApiClient client = new HttpApiClient()
-		try {
-			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
-			String vmId = computeServer.externalId
-			String nodeName = computeServer.parentServer?.name
+        ServiceResponse startServer(ComputeServer computeServer) {
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+                        if(computeServer.serverType == 'hypervisor') {
+                                String nodeName = computeServer.externalId
+                                return ProxmoxApiComputeUtil.startNode(client, authConfig, nodeName)
+                        }
+                        String vmId = computeServer.externalId
+                        String nodeName = computeServer.parentServer?.name
 
 			if (!vmId) {
 				return ServiceResponse.error("Missing externalId (VM ID) for server ${computeServer.name}")
@@ -566,12 +570,16 @@ class ProxmoxVeCloudProvider implements CloudProvider {
 	 * @return ServiceResponse
 	 */
 	@Override
-	ServiceResponse stopServer(ComputeServer computeServer) {
-		HttpApiClient client = new HttpApiClient()
-		try {
-			Map authConfig = plugin.getAuthConfig(computeServer.cloud)
-			String vmId = computeServer.externalId
-			String nodeName = computeServer.parentServer?.name
+        ServiceResponse stopServer(ComputeServer computeServer) {
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+                        if(computeServer.serverType == 'hypervisor') {
+                                String nodeName = computeServer.externalId
+                                return ProxmoxApiComputeUtil.shutdownNode(client, authConfig, nodeName)
+                        }
+                        String vmId = computeServer.externalId
+                        String nodeName = computeServer.parentServer?.name
 
 			if (!vmId) {
 				return ServiceResponse.error("Missing externalId (VM ID) for server ${computeServer.name}")
@@ -1485,6 +1493,35 @@ class ProxmoxVeCloudProvider implements CloudProvider {
                 } catch(e) {
                         log.error("Error migrating server ${server?.externalId} to node ${destinationNode}: ${e.message}", e)
                         return ServiceResponse.error("Error migrating server ${server?.name}: ${e.message}")
+                } finally {
+                        client?.shutdownClient()
+                }
+        }
+
+        ServiceResponse rebootServer(ComputeServer computeServer) {
+                HttpApiClient client = new HttpApiClient()
+                try {
+                        Map authConfig = plugin.getAuthConfig(computeServer.cloud)
+                        if(computeServer.serverType == 'hypervisor') {
+                                String nodeName = computeServer.externalId
+                                return ProxmoxApiComputeUtil.rebootNode(client, authConfig, nodeName)
+                        }
+                        String vmId = computeServer.externalId
+                        String nodeName = computeServer.parentServer?.name
+                        if (!vmId)
+                                return ServiceResponse.error("Missing externalId (VM ID) for server ${computeServer.name}")
+                        if (!nodeName) {
+                                def vmsList = ProxmoxApiComputeUtil.listVMs(client, authConfig)?.data
+                                def foundVm = vmsList?.find { it.vmid == vmId }
+                                if(foundVm?.node)
+                                        nodeName = foundVm.node
+                                else
+                                        return ServiceResponse.error("Missing nodeName (parentServer.name) for server ${computeServer.name} and could not find it via API.")
+                        }
+                        return ProxmoxApiComputeUtil.rebootVM(client, authConfig, nodeName, vmId)
+                } catch(e) {
+                        log.error("Error performing reboot on server ${computeServer.externalId}: ${e.message}", e)
+                        return ServiceResponse.error("Error performing reboot on server ${computeServer.externalId}: ${e.message}")
                 } finally {
                         client?.shutdownClient()
                 }

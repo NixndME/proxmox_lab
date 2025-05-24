@@ -143,6 +143,21 @@ class ProxmoxApiComputeUtil {
         return actionVMStatus(client, authConfig, nodeId, vmId, "reset")
     }
 
+    static startNode(HttpApiClient client, Map authConfig, String nodeId) {
+        log.info("Starting node ${nodeId}")
+        return actionNodeStatus(client, authConfig, nodeId, "start")
+    }
+
+    static rebootNode(HttpApiClient client, Map authConfig, String nodeId) {
+        log.info("Rebooting node ${nodeId}")
+        return actionNodeStatus(client, authConfig, nodeId, "reboot")
+    }
+
+    static shutdownNode(HttpApiClient client, Map authConfig, String nodeId) {
+        log.info("Shutting down node ${nodeId}")
+        return actionNodeStatus(client, authConfig, nodeId, "shutdown")
+    }
+
     /**
      * Initiates a migration of a VM to another node.
      * @param client http client to use for the request
@@ -235,6 +250,35 @@ class ProxmoxApiComputeUtil {
         } catch (e) {
             log.error("Exception performing action '${action}' on VM ${vmId} on node ${nodeId}: ${e.message}", e)
             return ServiceResponse.error("Exception performing action '${action}' on VM ${vmId} on node ${nodeId}: ${e.message}")
+        }
+    }
+
+    static actionNodeStatus(HttpApiClient client, Map authConfig, String nodeId, String action) {
+        log.info("Performing action '${action}' on node ${nodeId}")
+        try {
+            ServiceResponse tokenCfgResponse = getApiV2Token(authConfig)
+            if(!tokenCfgResponse.success)
+                return tokenCfgResponse
+            def tokenCfg = tokenCfgResponse.data
+            def opts = [
+                headers: [
+                    'Content-Type': 'application/json',
+                    'Cookie'             : "PVEAuthCookie=${tokenCfg.token}",
+                    'CSRFPreventionToken': tokenCfg.csrfToken
+                ],
+                contentType: ContentType.APPLICATION_JSON,
+                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL
+            ]
+            String apiPath = "${authConfig.v2basePath}/nodes/${nodeId}/status/${action}"
+            log.debug("Node action POST path ${authConfig.apiUrl}${apiPath}")
+            def results = ProxmoxApiUtil.callJsonApiWithRetry(client, authConfig.apiUrl, apiPath, null, null, new HttpApiClient.RequestOptions(opts), 'POST')
+            if(results.success)
+                return ServiceResponse.success(results.data?.data)
+            else
+                return ProxmoxApiUtil.validateApiResponse(results, "Failed to perform action '${action}' on node ${nodeId}")
+        } catch(e) {
+            log.error("Exception performing action '${action}' on node ${nodeId}: ${e.message}", e)
+            return ServiceResponse.error("Exception performing action '${action}' on node ${nodeId}: ${e.message}")
         }
     }
 
@@ -796,15 +840,30 @@ class ProxmoxApiComputeUtil {
 
     static ServiceResponse listProxmoxHypervisorHosts(HttpApiClient client, Map authConfig) {
         log.debug("listProxmoxHosts...")
+        def nodesResp = callListApiV2(client, "nodes", authConfig)
+        if(!nodesResp.success)
+            return nodesResp
 
-        def nodes = callListApiV2(client, "nodes", authConfig).data
-        nodes.each {
-            def nodeNetworkInfo = callListApiV2(client, "nodes/$it.node/network", authConfig)
-            def ipAddress = nodeNetworkInfo.data[0].address ?: nodeNetworkInfo.data[1].address
-            it.ipAddress = ipAddress
+        def nodes = nodesResp.data.collect { Map n ->
+            def networkInfo = callListApiV2(client, "nodes/${n.node}/network", authConfig)
+            def ip = null
+            if(networkInfo.success && networkInfo.data)
+                ip = networkInfo.data.find { it.address && it.address != '127.0.0.1' }?.address
+
+            return [
+                hostname    : n.node,
+                powerStatus : (n.status == 'online') ? 'on' : 'off',
+                osType      : 'linux',
+                ipAddress   : ip,
+                maxStorage  : n.maxdisk,
+                usedMemory  : n.mem,
+                maxMemory   : n.maxmem,
+                maxCpu      : n.maxcpu,
+                hypervisor  : true
+            ]
         }
 
-        return new ServiceResponse(success: true, data: nodes)
+        return ServiceResponse.success(nodes)
     }
     
     
