@@ -5,11 +5,16 @@ import com.morpheusdata.response.ServiceResponse
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.http.entity.ContentType
+import com.morpheusdata.proxmox.ve.util.ProxmoxSslUtil
 
 import java.net.URLEncoder
 
 @Slf4j
 class ProxmoxApiBackupUtil {
+
+    static {
+        ProxmoxSslUtil.configureSslContextIfNeeded()
+    }
 
     // Method adapted from ProxmoxApiComputeUtil.groovy
     private static ServiceResponse getApiV2Token(Map authConfig) {
@@ -26,7 +31,7 @@ class ProxmoxApiBackupUtil {
                     headers: ['Content-Type':'application/x-www-form-urlencoded'],
                     body: bodyStr,
                     contentType: ContentType.APPLICATION_FORM_URLENCODED,
-                    ignoreSSL: true // TODO: Make this configurable based on cloud settings if possible
+                    ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable based on cloud settings if possible
             )
             def results = client.callJsonApi(authConfig.apiUrl,"${authConfig.v2basePath}/\${path}", opts, 'POST')
 
@@ -78,7 +83,7 @@ class ProxmoxApiBackupUtil {
                 ],
                 body: bodyPayload,
                 contentType: ContentType.APPLICATION_JSON, // TODO: Verify Content-Type; Proxmox might expect x-www-form-urlencoded for this operation.
-                ignoreSSL: true // TODO: Make this configurable
+                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable
             )
 
             log.info("Creating Proxmox snapshot. API POST to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path} with body: \${bodyPayload}")
@@ -118,7 +123,7 @@ class ProxmoxApiBackupUtil {
                     'Cookie': "PVEAuthCookie=\${tokenCfg.token}",
                     'CSRFPreventionToken': tokenCfg.csrfToken
                 ],
-                ignoreSSL: true // TODO: Make this configurable
+                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable
             )
 
             log.info("Deleting Proxmox snapshot. API DELETE to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
@@ -173,7 +178,7 @@ class ProxmoxApiBackupUtil {
                 ],
                 body: bodyPayload, 
                 contentType: ContentType.APPLICATION_JSON, // TODO: Verify Content-Type; Proxmox might expect x-www-form-urlencoded for this operation.
-                ignoreSSL: true // TODO: Make this configurable
+                ignoreSSL: ProxmoxSslUtil.IGNORE_SSL // TODO: Make this configurable
             )
 
             log.info("Rolling back Proxmox snapshot. API POST to \${authConfig.apiUrl}\${authConfig.v2basePath}/\${path}")
