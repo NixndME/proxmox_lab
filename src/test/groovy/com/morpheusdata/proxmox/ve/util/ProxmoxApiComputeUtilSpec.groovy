@@ -162,6 +162,46 @@ class ProxmoxApiComputeUtilSpec extends Specification {
         0 * mockClient.callJsonApi(_, _, _, _, _, _)
     }
 
+    def "test requestVMConsole token failure"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: false, msg: "bad auth")
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+
+        when:
+        def response = ProxmoxApiComputeUtil.requestVMConsole(mockClient, authConfig, 'node1', '200', 'vnc')
+
+        then:
+        !response.success
+        response.msg.contains('Failed to get API token')
+        0 * mockClient.callJsonApi(_, _, _, _, _, _)
+    }
+
+    def "test requestVMConsole API error"() {
+        given:
+        def mockClient = Mock(HttpApiClient)
+        def authConfig = [apiUrl: "https://localhost:8006", v2basePath: "/api2/json", username: "user", password: "password"]
+        def mockTokenResponse = new ServiceResponse(success: true, data: [token: "faketoken", csrfToken: "fakecsrftoken"])
+        ProxmoxApiComputeUtil.metaClass.static.getApiV2Token = { Map ac -> mockTokenResponse }
+        def mockApiResponse = new ServiceResponse(success: false, msg: "API failure")
+        mockClient.callJsonApi(
+            authConfig.apiUrl,
+            "/api2/json/nodes/node1/qemu/200/vncproxy",
+            null,
+            null,
+            { it.headers['Cookie'] == "PVEAuthCookie=faketoken" && it.headers['CSRFPreventionToken'] == "fakecsrftoken" && it.body == [:] },
+            'POST'
+        ) >> mockApiResponse
+
+        when:
+        def response = ProxmoxApiComputeUtil.requestVMConsole(mockClient, authConfig, 'node1', '200', 'vnc')
+
+        then:
+        !response.success
+        response.msg.contains('API failure')
+    }
+
     // Snapshot Management Tests
     def "test listSnapshots success"() {
         given:
