@@ -139,8 +139,8 @@ class HostSync {
                 doUpdate = true
             }
 
-            if (cloudItem.externalIp != existingItem.externalIp) {
-                existingItem.setExternalIp(cloudItem.externalIp)
+            if (cloudItem.ipAddress != existingItem.externalIp) {
+                existingItem.setExternalIp(cloudItem.ipAddress)
                 doUpdate = true
             }
 

@@ -840,26 +840,30 @@ class ProxmoxApiComputeUtil {
 
     static ServiceResponse listProxmoxHypervisorHosts(HttpApiClient client, Map authConfig) {
         log.debug("listProxmoxHosts...")
-        def nodesResp = callListApiV2(client, "nodes", authConfig)
+        // Pull node information from cluster/resources so we have consistent
+        // metrics such as maxcpu, maxmem and disk usage similar to VM payloads
+        def nodesResp = callListApiV2(client, "cluster/resources", authConfig)
         if(!nodesResp.success)
             return nodesResp
 
-        def nodes = nodesResp.data.collect { Map n ->
+        def nodes = nodesResp.data.findAll { it.type == 'node' }.collect { Map n ->
             def networkInfo = callListApiV2(client, "nodes/${n.node}/network", authConfig)
             def ip = null
             if(networkInfo.success && networkInfo.data)
                 ip = networkInfo.data.find { it.address && it.address != '127.0.0.1' }?.address
 
             return [
-                hostname    : n.node,
-                powerStatus : (n.status == 'online') ? 'on' : 'off',
-                osType      : 'linux',
-                ipAddress   : ip,
-                maxStorage  : n.maxdisk,
-                usedMemory  : n.mem,
-                maxMemory   : n.maxmem,
-                maxCpu      : n.maxcpu,
-                hypervisor  : true
+                node       : n.node,
+                hostname   : n.node,
+                status     : n.status,
+                osType     : 'linux',
+                ipAddress  : ip,
+                maxcpu     : n.maxcpu,
+                maxmem     : n.maxmem,
+                mem        : n.mem,
+                maxdisk    : n.maxdisk,
+                disk       : n.disk ?: 0L,
+                hypervisor : true
             ]
         }
 
