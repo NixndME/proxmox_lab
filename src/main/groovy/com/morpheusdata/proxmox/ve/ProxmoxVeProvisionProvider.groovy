@@ -979,23 +979,97 @@ class ProxmoxVeProvisionProvider extends AbstractProvisionProvider implements Vm
 
 	 */
 
-	@Override
-	ServiceResponse validateHost(ComputeServer server, Map opts) {
-		return null
-	}
+        @Override
+        ServiceResponse validateHost(ComputeServer server, Map opts) {
+                try {
+                        Cloud cloud = server.cloud
+                        Map authConfig = plugin.getAuthConfig(cloud)
+                        HttpApiClient client = new HttpApiClient()
 
-	@Override
-	ServiceResponse<PrepareHostResponse> prepareHost(ComputeServer server, HostRequest hostRequest, Map opts) {
-		return null
-	}
+                        ServiceResponse hostList = ProxmoxApiComputeUtil.listProxmoxHypervisorHosts(client, authConfig)
+                        client.shutdownClient()
 
-	@Override
-	ServiceResponse<ProvisionResponse> runHost(ComputeServer server, HostRequest hostRequest, Map opts) {
-		return null
-	}
+                        if(!hostList.success) {
+                                return ServiceResponse.error(hostList.msg ?: 'Unable to list Proxmox hosts')
+                        }
 
-	@Override
-	ServiceResponse finalizeHost(ComputeServer server) {
-		return null
-	}
+                        String targetNode = server.externalId ?: server.getConfigProperty('proxmoxNode') ?: server.name
+                        Boolean exists = hostList.data?.find { it.node?.toString() == targetNode }
+
+                        if(!exists) {
+                                return ServiceResponse.error("Host ${targetNode} not found in Proxmox cluster")
+                        }
+
+                        return ServiceResponse.success()
+                } catch(e) {
+                        log.error("Error validating host: ${e.message}", e)
+                        return ServiceResponse.error("Error validating host: ${e.message}")
+                }
+        }
+
+        @Override
+        ServiceResponse<PrepareHostResponse> prepareHost(ComputeServer server, HostRequest hostRequest, Map opts) {
+                try {
+                        ServiceResponse validateResp = validateHost(server, opts)
+                        if(!validateResp.success)
+                                return new ServiceResponse<PrepareHostResponse>(false, validateResp.msg, validateResp.errors, null)
+
+                        Cloud cloud = server.cloud
+                        Map authConfig = plugin.getAuthConfig(cloud)
+                        HttpApiClient client = new HttpApiClient()
+
+                        ServiceResponse dsList = ProxmoxApiComputeUtil.listProxmoxDatastores(client, authConfig)
+                        ServiceResponse netList = ProxmoxApiComputeUtil.listProxmoxNetworks(client, authConfig)
+                        client.shutdownClient()
+
+                        if(!dsList.success)
+                                return new ServiceResponse<PrepareHostResponse>(false, dsList.msg ?: 'Failed to list datastores', null, null)
+                        if(!netList.success)
+                                return new ServiceResponse<PrepareHostResponse>(false, netList.msg ?: 'Failed to list networks', null, null)
+
+                        return new ServiceResponse<PrepareHostResponse>(true, null, null, new PrepareHostResponse())
+                } catch(e) {
+                        log.error("Error preparing host: ${e.message}", e)
+                        return new ServiceResponse<PrepareHostResponse>(false, "Error preparing host: ${e.message}", null, null)
+                }
+        }
+
+        @Override
+        ServiceResponse<ProvisionResponse> runHost(ComputeServer server, HostRequest hostRequest, Map opts) {
+                try {
+                        ServiceResponse validateResp = validateHost(server, opts)
+                        if(!validateResp.success)
+                                return new ServiceResponse<ProvisionResponse>(false, validateResp.msg, validateResp.errors, null)
+
+                        server.computeServerType = context.async.cloud.findComputeServerTypeByCode('proxmox-ve-node').blockingGet()
+                        server.serverType = 'hypervisor'
+                        server.category = "proxmox.ve.host.${server.cloud?.id}"
+                        server.status = 'provisioned'
+                        server = saveAndGet(server)
+
+                        return new ServiceResponse<ProvisionResponse>(
+                                        true,
+                                        'Provisioned',
+                                        null,
+                                        new ProvisionResponse(success:true, externalId: server.externalId)
+                        )
+                } catch(e) {
+                        log.error("Error provisioning host: ${e.message}", e)
+                        return new ServiceResponse<ProvisionResponse>(false, "Error provisioning host: ${e.message}", null, null)
+                }
+        }
+
+        @Override
+        ServiceResponse finalizeHost(ComputeServer server) {
+                try {
+                        Cloud cloud = server.cloud
+                        HttpApiClient client = new HttpApiClient()
+                        new HostSync(plugin, cloud, client).execute()
+                        client.shutdownClient()
+                        return ServiceResponse.success()
+                } catch(e) {
+                        log.error("Error finalizing host: ${e.message}", e)
+                        return ServiceResponse.error("Error finalizing host: ${e.message}")
+                }
+        }
 }
