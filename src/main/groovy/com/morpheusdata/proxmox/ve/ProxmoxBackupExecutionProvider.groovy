@@ -11,6 +11,7 @@ import com.morpheusdata.model.ComputeServer
 import com.morpheusdata.model.Workload
 import com.morpheusdata.response.ServiceResponse
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiBackupUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxRetryUtil
 import com.morpheusdata.core.util.HttpApiClient
 import groovy.util.logging.Slf4j
 import java.util.Date
@@ -116,7 +117,9 @@ class ProxmoxBackupExecutionProvider implements BackupExecutionProvider {
             }
 
             log.info("Attempting to delete Proxmox snapshot: '${snapshotName}' for VM ID: ${server.externalId} on node: ${proxmoxNode}")
-            ServiceResponse deleteSnapResponse = ProxmoxApiBackupUtil.deleteSnapshot(client, authConfig, proxmoxNode, server.externalId, snapshotName)
+            ServiceResponse deleteSnapResponse = ProxmoxRetryUtil.executeWithRetry({
+                ProxmoxApiBackupUtil.deleteSnapshot(client, authConfig, proxmoxNode, server.externalId, snapshotName)
+            }, "delete snapshot '${snapshotName}'")
 
             if (deleteSnapResponse.success) {
                 log.info("Successfully deleted snapshot '${snapshotName}' from Proxmox for backup result ${backupResult.id}")
@@ -176,7 +179,9 @@ class ProxmoxBackupExecutionProvider implements BackupExecutionProvider {
             }
             
             log.info("Attempting to create Proxmox snapshot: '${snapshotName}' for VM ID: ${server.externalId} on node: ${proxmoxNode}. Description: '${description}'")
-            ServiceResponse createSnapResponse = ProxmoxApiBackupUtil.createSnapshot(client, authConfig, proxmoxNode, server.externalId, snapshotName, description)
+            ServiceResponse createSnapResponse = ProxmoxRetryUtil.executeWithRetry({
+                ProxmoxApiBackupUtil.createSnapshot(client, authConfig, proxmoxNode, server.externalId, snapshotName, description)
+            }, "create snapshot '${snapshotName}'")
 
             if (createSnapResponse.success) {
                 log.info("Successfully created snapshot '${snapshotName}' in Proxmox. Task ID: ${createSnapResponse.data?.data}")

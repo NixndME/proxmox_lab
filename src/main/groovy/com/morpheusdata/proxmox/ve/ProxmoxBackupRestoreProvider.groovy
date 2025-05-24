@@ -12,6 +12,7 @@ import com.morpheusdata.model.Instance
 import com.morpheusdata.model.Workload
 import com.morpheusdata.response.ServiceResponse
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiBackupUtil
+import com.morpheusdata.proxmox.ve.util.ProxmoxRetryUtil
 import com.morpheusdata.core.util.HttpApiClient
 import groovy.util.logging.Slf4j
 import java.util.Date
@@ -201,7 +202,9 @@ class ProxmoxBackupRestoreProvider implements BackupRestoreProvider {
             if(!proxmoxNode) {
                 proxmoxNode = server.getConfigProperty('proxmoxNode') ?: backupResult.getConfigMap()?.proxmoxNode
             }
-            ServiceResponse delResp = ProxmoxApiBackupUtil.deleteSnapshot(client, authConfig, proxmoxNode, server.externalId, snapshotName)
+            ServiceResponse delResp = ProxmoxRetryUtil.executeWithRetry({
+                ProxmoxApiBackupUtil.deleteSnapshot(client, authConfig, proxmoxNode, server.externalId, snapshotName)
+            }, "delete snapshot '${snapshotName}'")
             if(!delResp.success) {
                 log.warn("Failed to delete snapshot '${snapshotName}' during cleanup: ${delResp.msg}")
             }
