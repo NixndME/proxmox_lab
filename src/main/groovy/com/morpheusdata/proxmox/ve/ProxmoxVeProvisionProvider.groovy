@@ -33,6 +33,7 @@ import com.morpheusdata.response.ProvisionResponse
 import com.morpheusdata.response.ServiceResponse
 import com.morpheusdata.proxmox.ve.util.ProxmoxApiComputeUtil
 import com.morpheusdata.proxmox.ve.util.ProxmoxMiscUtil
+import com.morpheusdata.proxmox.ve.sync.HostSync
 import groovy.util.logging.Slf4j
 
 @Slf4j
